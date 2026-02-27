@@ -273,6 +273,63 @@ function cancelEdit(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Facet detection — URLs, @mentions (resolved to DIDs), #hashtags
+// ATProto facets use UTF-8 byte offsets, not character offsets.
+// ---------------------------------------------------------------------------
+
+interface Facet {
+  index: { byteStart: number; byteEnd: number };
+  features: Array<{ $type: string; [key: string]: unknown }>;
+}
+
+async function detectFacets(text: string): Promise<Facet[]> {
+  const encoder = new TextEncoder();
+  const facets: Facet[] = [];
+
+  function byteOffset(charIdx: number): number {
+    return encoder.encode(text.slice(0, charIdx)).length;
+  }
+
+  // URLs
+  const urlRegex = /https?:\/\/[^\s\]>)'"<]+/g;
+  let m: RegExpExecArray | null;
+  while ((m = urlRegex.exec(text)) !== null) {
+    const url = m[0].replace(/[.,;:!?'")\]]+$/, ''); // trim trailing punctuation
+    const byteStart = byteOffset(m.index);
+    const byteEnd = byteStart + encoder.encode(url).length;
+    facets.push({ index: { byteStart, byteEnd }, features: [{ $type: 'app.bsky.richtext.facet#link', uri: url }] });
+  }
+
+  // @mentions — resolve handles to DIDs in parallel
+  const mentionRegex = /(?<![^\s])@([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+)/g;
+  const pending: Array<{ index: { byteStart: number; byteEnd: number }; handle: string }> = [];
+  while ((m = mentionRegex.exec(text)) !== null) {
+    const byteStart = byteOffset(m.index);
+    const byteEnd = byteStart + encoder.encode(m[0]).length;
+    pending.push({ index: { byteStart, byteEnd }, handle: m[1] });
+  }
+  await Promise.all(pending.map(async ({ index, handle }) => {
+    try {
+      const res = await fetch(`https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(handle)}`);
+      if (res.ok) {
+        const data = await res.json() as { did?: string };
+        if (data.did) facets.push({ index, features: [{ $type: 'app.bsky.richtext.facet#mention', did: data.did }] });
+      }
+    } catch (_) { /* skip unresolvable handles */ }
+  }));
+
+  // #hashtags
+  const tagRegex = /(?<![^\s])#([a-zA-Z][a-zA-Z0-9_]*)/g;
+  while ((m = tagRegex.exec(text)) !== null) {
+    const byteStart = byteOffset(m.index);
+    const byteEnd = byteStart + encoder.encode(m[0]).length;
+    facets.push({ index: { byteStart, byteEnd }, features: [{ $type: 'app.bsky.richtext.facet#tag', tag: m[1] }] });
+  }
+
+  return facets;
+}
+
+// ---------------------------------------------------------------------------
 // Schedule / update post
 // ---------------------------------------------------------------------------
 
@@ -343,11 +400,13 @@ async function performCreatePost(): Promise<void> {
       headers['x-scheduled-at'] = new Date(scheduledAtValue).toISOString();
     }
 
+    const facets = await detectFacets(text);
     const record: Record<string, unknown> = {
       $type: 'app.bsky.feed.post',
       text,
       createdAt: new Date().toISOString(),
     };
+    if (facets.length > 0) record.facets = facets;
     if (embed) record.embed = embed;
 
     const response = await alfFetch('/xrpc/com.atproto.repo.createRecord', {
@@ -404,10 +463,10 @@ async function performSaveEdit(): Promise<void> {
 
   try {
     const uri = decodeURIComponent(editingUri!);
-    const updateBody: Record<string, unknown> = {
-      uri,
-      record: { $type: 'app.bsky.feed.post', text, createdAt: new Date().toISOString() },
-    };
+    const facets = await detectFacets(text);
+    const record: Record<string, unknown> = { $type: 'app.bsky.feed.post', text, createdAt: new Date().toISOString() };
+    if (facets.length > 0) record.facets = facets;
+    const updateBody: Record<string, unknown> = { uri, record };
     if (scheduledAtValue) {
       updateBody.scheduledAt = new Date(scheduledAtValue).toISOString();
     }

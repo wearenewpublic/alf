@@ -1,0 +1,26 @@
+services:
+  alf:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3005:3005"
+    environment:
+      PORT: "3005"
+      SERVICE_URL: "http://localhost:3005"
+      PLC_ROOT: "https://plc.directory"
+      HANDLE_RESOLVER_URL: "https://api.bsky.app"
+      DATABASE_TYPE: "sqlite"
+      DATABASE_PATH: "/data/alf.db"
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY}"
+      # POST_PUBLISH_WEBHOOK_URL: "https://your-service.example.com/hooks/post-published"
+    volumes:
+      - alf-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3005/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  alf-data:

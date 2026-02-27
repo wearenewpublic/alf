@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>atproto Latency Fabric — Scheduled Posts Demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --border:        #e5e7eb;
+      --bg-page:       #f9fafb;
+      --bg-content:    #ffffff;
+      --text:          #111827;
+      --text-muted:    #6b7280;
+      --text-faint:    #9ca3af;
+      --indigo:        #6366f1;
+      --indigo-dark:   #4f46e5;
+      --indigo-light:  #eef2ff;
+      --header-h:      96px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg-page);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Site header — always at top ────────────────────────────────── */
+
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      height: var(--header-h);
+      background: var(--bg-content);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+      padding: 0 1.5rem;
+    }
+
+    .site-logo {
+      width: 80px;
+      height: 80px;
+      image-rendering: pixelated;
+      flex-shrink: 0;
+    }
+
+    @media (min-width: 900px) {
+      :root { --header-h: 112px; }
+      .site-logo { width: 128px; height: 128px; }
+    }
+
+    .site-title-block h1 {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 1rem;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -0.01em;
+      line-height: 1.2;
+    }
+
+    @media (min-width: 900px) {
+      .site-title-block h1 { font-size: 1.15rem; }
+    }
+
+    .site-title-block p {
+      font-size: 0.7rem;
+      color: var(--text-faint);
+      line-height: 1.1;
+      margin-top: 0.1rem;
+    }
+
+    .site-header-links {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+      margin-left: auto;
+      flex-shrink: 0;
+    }
+
+    .site-header-links a {
+      display: flex;
+      align-items: center;
+      opacity: 0.55;
+      transition: opacity 0.15s;
+      text-decoration: none;
+    }
+    .site-header-links a:hover { opacity: 1; }
+
+    /* ── Two-column layout ──────────────────────────────────────────── */
+
+    .main-content {
+      display: flex;
+      flex-direction: column;
+    }
+
+    @media (min-width: 900px) {
+      .main-content {
+        flex-direction: row;
+        align-items: flex-start;
+        min-height: calc(100vh - var(--header-h));
+      }
+
+      .demo-panel {
+        width: 440px;
+        flex-shrink: 0;
+        border-right: 1px solid var(--border);
+      }
+
+      .info-panel {
+        flex: 1;
+        max-width: 560px;
+        position: sticky;
+        top: var(--header-h);
+        max-height: calc(100vh - var(--header-h));
+        overflow-y: auto;
+      }
+    }
+
+    /* ── Demo panel ─────────────────────────────────────────────────── */
+
+    .demo-panel {
+      background: var(--bg-content);
+      padding: 1.75rem 1.5rem;
+    }
+
+    .section-label {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-faint);
+      margin-bottom: 1.1rem;
+    }
+
+    .form-section {
+      padding-bottom: 1.5rem;
+      margin-bottom: 1.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .form-section:last-child {
+      border-bottom: none;
+      margin-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .form-section-title {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 0.875rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 0.85rem;
+      display: flex;
+      align-items: baseline;
+      gap: 0.5rem;
+    }
+
+    label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      margin-bottom: 0.3rem;
+    }
+
+    input[type="text"],
+    input[type="datetime-local"],
+    textarea {
+      width: 100%;
+      padding: 0.5rem 0.65rem;
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      font-size: 0.9rem;
+      font-family: inherit;
+      color: var(--text);
+      background: var(--bg-content);
+      outline: none;
+      transition: border-color 0.12s;
+      margin-bottom: 0.8rem;
+    }
+
+    input[type="text"]:focus,
+    input[type="datetime-local"]:focus,
+    textarea:focus { border-color: var(--indigo); }
+
+    textarea { resize: vertical; min-height: 80px; }
+
+    .image-upload-area {
+      border: 1px dashed var(--border);
+      padding: 0.75rem;
+      margin-bottom: 0.8rem;
+      transition: border-color 0.12s;
+    }
+    .image-upload-area:focus-within { border-color: var(--indigo); }
+
+    input[type="file"] {
+      width: 100%;
+      font-size: 0.825rem;
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+    input[type="file"]::file-selector-button {
+      padding: 0.25rem 0.65rem;
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      background: var(--bg-page);
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      margin-right: 0.65rem;
+    }
+    input[type="file"]::file-selector-button:hover { background: var(--border); }
+
+    #image-preview-wrap {
+      margin-top: 0.65rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    #image-preview {
+      max-width: 100%;
+      max-height: 180px;
+      border: 1px solid var(--border);
+      object-fit: contain;
+      background: var(--bg-page);
+    }
+    #image-alt { margin-bottom: 0 !important; }
+
+    .time-presets {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .btn-preset {
+      background: var(--bg-page);
+      border: 1px solid var(--border);
+      color: var(--indigo);
+      padding: 0.2rem 0.6rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      border-radius: 2px;
+      cursor: pointer;
+      transition: background 0.1s, border-color 0.1s;
+    }
+    .btn-preset:hover { background: var(--indigo-light); border-color: #c7d2fe; }
+    .btn-preset.active { background: var(--indigo-light); border-color: var(--indigo); color: var(--indigo-dark); }
+
+    button, .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.45rem 1rem;
+      border: none;
+      border-radius: 2px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.12s;
+      text-decoration: none;
+      font-family: inherit;
+    }
+
+    .btn-primary { background: var(--indigo); color: #fff; }
+    .btn-primary:hover { background: var(--indigo-dark); }
+
+    .btn-secondary {
+      background: var(--bg-page);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { background: var(--border); }
+
+    .btn-danger { background: #ef4444; color: #fff; padding: 0.3rem 0.6rem; font-size: 0.78rem; }
+    .btn-danger:hover { background: #dc2626; }
+
+    .btn-outline {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 0.3rem 0.6rem;
+      font-size: 0.78rem;
+    }
+    .btn-outline:hover { background: var(--bg-page); border-color: var(--indigo); color: var(--indigo); }
+
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .banner {
+      padding: 0.65rem 0.85rem;
+      font-size: 0.85rem;
+      margin-bottom: 1rem;
+      border-left: 3px solid;
+      word-break: break-all;
+      overflow-wrap: anywhere;
+    }
+
+    .banner-success { background: #f0fdf4; color: #166534; border-color: #22c55e; }
+    .banner-warn    { background: #fffbeb; color: #92400e; border-color: #f59e0b; }
+    .banner-demo    { background: #fefce8; color: #713f12; border-color: #ca8a04; font-size: 0.8rem; margin-bottom: 1.25rem; line-height: 1.5; }
+
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 0.1rem 0.45rem;
+      border-radius: 2px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .badge-scheduled { background: #dbeafe; color: #1d4ed8; }
+    .badge-published { background: #dcfce7; color: #15803d; }
+    .badge-draft     { background: #f3f4f6; color: #4b5563; }
+    .badge-failed    { background: #fee2e2; color: #991b1b; }
+    .badge-pending   { background: #f3f4f6; color: #4b5563; }
+
+    /* ── Post list ───────────────────────────────────────────────────── */
+
+    .post-item {
+      border-top: 1px solid var(--border);
+      padding: 0.85rem 0;
+    }
+    .post-item:last-child { border-bottom: 1px solid var(--border); }
+
+    .post-item-header {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      margin-bottom: 0.35rem;
+    }
+
+    .post-text {
+      font-size: 0.875rem;
+      color: var(--text);
+      margin-bottom: 0.35rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .post-meta { font-size: 0.75rem; color: var(--text-faint); margin-bottom: 0.55rem; }
+
+    .post-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
+
+    .post-bsky-link {
+      font-size: 0.75rem;
+      color: var(--indigo);
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .post-bsky-link:hover { text-decoration: underline; }
+
+    .edit-fields { margin-bottom: 0.5rem; }
+
+    .hidden { display: none !important; }
+
+    .user-label {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .post-item-editing {
+      outline: 2px solid var(--indigo);
+      outline-offset: -1px;
+      background: var(--indigo-light);
+    }
+
+    #posts-list .empty-state {
+      color: var(--text-faint);
+      font-size: 0.85rem;
+      padding: 1.5rem 0;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 13px;
+      height: 13px;
+      border: 2px solid #c7d2fe;
+      border-top-color: var(--indigo);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 4px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #loading { color: var(--text-faint); font-size: 0.875rem; padding: 2rem 0; }
+
+    /* ── Info panel ─────────────────────────────────────────────────── */
+
+    .info-panel {
+      background: var(--bg-page);
+      padding: 1.75rem 1.5rem;
+    }
+
+    .info-section {
+      border-top: 1px solid var(--border);
+      padding: 1.25rem 0;
+    }
+    .info-section:first-child { border-top: none; padding-top: 0; }
+
+    .info-section h2 {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--indigo);
+      margin-bottom: 0.85rem;
+    }
+
+    .info-section p {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      line-height: 1.65;
+      margin-bottom: 0.65rem;
+      max-width: 62ch;
+    }
+    .info-section p:last-child { margin-bottom: 0; }
+
+    /* ── Architecture diagram ────────────────────────────────────────── */
+
+    .arch-diagram {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      margin: 0.5rem 0 0.85rem;
+    }
+
+    .arch-node {
+      border: 1px solid var(--border);
+      padding: 0.5rem 0.85rem;
+      background: var(--bg-content);
+      min-width: 220px;
+    }
+
+    .arch-node-alf {
+      border-color: var(--indigo);
+      background: var(--indigo-light);
+    }
+
+    .arch-node-title {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: var(--text);
+      display: block;
+    }
+
+    .arch-node-sub {
+      font-size: 0.68rem;
+      color: var(--text-faint);
+      display: block;
+      margin-top: 0.1rem;
+    }
+
+    .arch-edge {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.2rem 0 0.2rem 0.6rem;
+    }
+
+    .arch-edge-arrow {
+      font-size: 0.85rem;
+      color: var(--text-faint);
+      line-height: 1;
+    }
+
+    .arch-edge-label {
+      font-size: 0.7rem;
+      color: var(--text-faint);
+      font-family: monospace;
+    }
+
+    /* ── Step list ───────────────────────────────────────────────────── */
+
+    .step-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+      max-width: 62ch;
+    }
+
+    .step-list li {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.65rem;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      line-height: 1.55;
+    }
+
+    .step-num {
+      flex-shrink: 0;
+      width: 20px;
+      height: 20px;
+      background: var(--indigo);
+      color: #fff;
+      font-size: 0.68rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 1px;
+    }
+
+    code {
+      font-family: monospace;
+      background: var(--bg-content);
+      border: 1px solid var(--border);
+      padding: 0.1em 0.3em;
+      font-size: 0.82em;
+      color: var(--indigo-dark);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Always-visible site header ──────────────────────────────── -->
+  <header class="site-header">
+    <img class="site-logo" src="logo.png" alt="" />
+    <div class="site-title-block">
+      <h1>atproto Latency Fabric</h1>
+      <p>Scheduled publishing for the open social web</p>
+    </div>
+    <nav class="site-header-links">
+      <a href="https://tangled.sh/newpublic.org/alf" target="_blank" rel="noopener" aria-label="Tangled">
+        <img src="https://assets.tangled.network/tangled_dolly_face_only_black_on_trans.svg" width="28" height="28" alt="Tangled" />
+      </a>
+      <a href="https://github.com/wearenewpublic/alf" target="_blank" rel="noopener" aria-label="GitHub">
+        <svg width="28" height="28" viewBox="0 0 98 96" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path fill-rule="evenodd" clip-rule="evenodd" d="M48.854 0C21.839 0 0 22 0 49.217c0 21.756 13.993 40.172 33.405 46.69 2.427.49 3.316-1.059 3.316-2.362 0-1.141-.08-5.052-.08-9.127-13.59 2.934-16.42-5.867-16.42-5.867-2.184-5.704-5.42-7.17-5.42-7.17-4.448-3.015.324-3.015.324-3.015 4.934.326 7.523 5.052 7.523 5.052 4.367 7.496 11.404 5.378 14.235 4.074.404-3.178 1.699-5.378 3.074-6.6-10.839-1.141-22.243-5.378-22.243-24.283 0-5.378 1.94-9.778 5.014-13.2-.485-1.222-2.184-6.275.486-13.038 0 0 4.125-1.304 13.426 5.052a46.97 46.97 0 0 1 12.214-1.63c4.125 0 8.33.571 12.213 1.63 9.302-6.356 13.427-5.052 13.427-5.052 2.67 6.763.97 11.816.485 13.038 3.155 3.422 5.015 7.822 5.015 13.2 0 18.905-11.404 23.06-22.324 24.283 1.78 1.548 3.316 4.481 3.316 9.126 0 6.6-.08 11.897-.08 13.526 0 1.304.89 2.853 3.316 2.364 19.412-6.52 33.405-24.935 33.405-46.691C97.707 22 75.788 0 48.854 0z"/>
+        </svg>
+      </a>
+    </nav>
+  </header>
+
+  <!-- ── Main content ─────────────────────────────────────────────── -->
+  <div class="main-content">
+
+    <!-- ── Left: Interactive demo ───────────────────────────────── -->
+    <div class="demo-panel">
+
+      <div class="section-label">Demo</div>
+
+      <div class="banner banner-demo">
+        <strong>Demo only.</strong> Data may be deleted at any time. Max 3 active drafts. <a href="terms.html" style="color:inherit;font-weight:600;">Terms &amp; Privacy</a>
+      </div>
+
+      <div id="loading"><span class="spinner"></span> Loading...</div>
+
+      <div id="banner-authorized" class="banner banner-success hidden">
+        Authorized — you can now schedule posts.
+      </div>
+
+      <!-- State 1: Not logged in -->
+      <div id="view-login" class="hidden">
+        <div class="form-section">
+          <div class="form-section-title">Sign in with Bluesky</div>
+          <label for="handle-input">Your atproto handle</label>
+          <input type="text" id="handle-input" placeholder="alice.bsky.social" autocomplete="username" />
+          <button class="btn btn-primary" id="login-btn">Sign in →</button>
+          <p style="font-size:0.75rem;color:var(--text-faint);margin-top:0.5rem;line-height:1.5;">By signing in you agree to the <a href="terms.html" target="_blank" style="color:var(--text-faint);">Terms of Service &amp; Privacy Policy</a>.</p>
+          <p id="login-error" style="color:#ef4444;font-size:0.82rem;margin-top:0.5rem;" class="hidden"></p>
+        </div>
+      </div>
+
+      <!-- State 2: Logged in, not yet authorized -->
+      <div id="view-not-authorized" class="hidden">
+        <div class="form-section">
+          <div class="form-section-title">Grant access</div>
+          <div class="status-row" style="margin-bottom:0.75rem;">
+            <span>Signed in as</span>
+            <span class="user-label" id="did-label-2"></span>
+          </div>
+          <div class="banner banner-warn">
+            Not yet authorized to post on your behalf.
+          </div>
+          <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.85rem;line-height:1.55;">
+            Grant atproto Latency Fabric permission to publish on your behalf. You'll be redirected to your PDS to approve, then returned here automatically.
+          </p>
+          <a id="authorize-alf-link" href="#" class="btn btn-primary">Grant access →</a>
+        </div>
+      </div>
+
+      <!-- State 3: Logged in, authorized -->
+      <div id="view-authorized" class="hidden">
+
+        <div class="form-section" style="padding-bottom:0.85rem;margin-bottom:1.25rem;">
+          <div class="status-row">
+            <span>Signed in as</span>
+            <span class="user-label" id="did-label-3"></span>
+            <span class="badge badge-published">authorized ✓</span>
+            <button class="btn btn-danger" id="delete-account-btn" style="margin-left:auto;" title="Cancel all drafts and remove ALF's authorization to post on your behalf">Delete account data</button>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <div class="form-section-title" id="form-title">Schedule a Post</div>
+
+          <label for="post-text">Post text</label>
+          <textarea id="post-text" placeholder="What's on your mind?"></textarea>
+
+          <label for="scheduled-at">Schedule for</label>
+          <div class="time-presets">
+            <button type="button" class="btn-preset" id="preset-90s">+90s</button>
+            <button type="button" class="btn-preset" id="preset-1hr">+1 hr</button>
+            <button type="button" class="btn-preset" id="preset-tomorrow">Tomorrow 9am</button>
+            <button type="button" class="btn-preset" id="preset-next-week">Next week</button>
+            <button type="button" class="btn-preset" id="preset-draft">Draft</button>
+          </div>
+          <input type="datetime-local" id="scheduled-at" />
+
+          <label>Image (optional)</label>
+          <div class="image-upload-area">
+            <input type="file" id="image-input" accept="image/jpeg,image/png,image/gif,image/webp" />
+            <div id="image-preview-wrap" class="hidden">
+              <img id="image-preview" alt="" />
+              <input type="text" id="image-alt" placeholder="Alt text (describe the image)" />
+              <button type="button" id="image-clear-btn" class="btn btn-secondary" style="align-self:flex-start;padding:0.25rem 0.6rem;font-size:0.78rem;">Remove image</button>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+            <button class="btn btn-primary" id="schedule-btn">Schedule Post</button>
+            <button class="btn btn-secondary hidden" id="cancel-edit-btn">Cancel</button>
+          </div>
+          <div id="schedule-success" class="banner banner-success hidden" style="margin-top:0.75rem;"></div>
+          <p id="schedule-error" style="color:#ef4444;font-size:0.82rem;margin-top:0.5rem;" class="hidden"></p>
+        </div>
+
+        <div class="form-section" style="border-bottom:none;margin-bottom:0;padding-bottom:0;">
+          <div class="form-section-title">
+            Drafts
+            <span style="font-size:0.68rem;color:var(--text-faint);font-weight:400;">(live)</span>
+          </div>
+          <div id="posts-list">
+            <div class="empty-state">Loading...</div>
+          </div>
+        </div>
+
+      </div><!-- /view-authorized -->
+    </div><!-- /demo-panel -->
+
+    <!-- ── Right: Project info ───────────────────────────────────── -->
+    <div class="info-panel">
+
+      <div class="info-section">
+        <h2>What is it?</h2>
+        <p>
+          atproto Latency Fabric is an XRPC proxy draft scheduler for <a href="https://atproto.com" style="color:var(--indigo);text-decoration:none;font-weight:600;">atproto</a> records. Writes go in now, records appear in the feed later — at exactly the time you specify.
+        </p>
+        <p>
+          Drop it in front of any atproto client: point writes at the proxy instead of directly at the PDS to get scheduled posting, drafts, and queued writes without changing your data model.
+        </p>
+      </div>
+
+      <div class="info-section">
+        <h2>How it works</h2>
+
+        <div class="arch-diagram">
+          <div class="arch-node">
+            <span class="arch-node-title">Client App</span>
+            <span class="arch-node-sub">your existing code</span>
+          </div>
+          <div class="arch-edge">
+            <span class="arch-edge-arrow">↓</span>
+            <span class="arch-edge-label">XRPC write + x-scheduled-at</span>
+          </div>
+          <div class="arch-node arch-node-alf">
+            <span class="arch-node-title">atproto Latency Fabric</span>
+            <span class="arch-node-sub">transparent proxy · stores draft</span>
+          </div>
+          <div class="arch-edge">
+            <span class="arch-edge-arrow">↓</span>
+            <span class="arch-edge-label">at scheduled time</span>
+          </div>
+          <div class="arch-node">
+            <span class="arch-node-title">PDS</span>
+            <span class="arch-node-sub">persists the record</span>
+          </div>
+        </div>
+
+        <ol class="step-list">
+          <li>
+            <span class="step-num">1</span>
+            <span><strong style="color:var(--text);">Authorize once</strong> — complete a one-time authorization so the proxy can publish records to your PDS on your behalf.</span>
+          </li>
+          <li>
+            <span class="step-num">2</span>
+            <span><strong style="color:var(--text);">Redirect your writes</strong> — point XRPC write calls at the proxy. Add the <code>x-scheduled-at</code> header to set the publish time.</span>
+          </li>
+          <li>
+            <span class="step-num">3</span>
+            <span><strong style="color:var(--text);">Draft stored</strong> — the proxy stores the record (and any images) locally. A provisional AT-URI is returned immediately.</span>
+          </li>
+          <li>
+            <span class="step-num">4</span>
+            <span><strong style="color:var(--text);">Auto-publish</strong> — the built-in scheduler wakes up exactly at the scheduled time and commits the record to your PDS.</span>
+          </li>
+          <li>
+            <span class="step-num">5</span>
+            <span><strong style="color:var(--text);">Manage drafts</strong> — list, reschedule, publish immediately, or cancel via <code>town.roundabout.scheduledPosts.*</code> XRPC methods.</span>
+          </li>
+        </ol>
+      </div>
+
+    </div><!-- /info-panel -->
+  </div><!-- /main-content -->
+
+  <script src="bundle.js"></script>
+</body>
+</html>

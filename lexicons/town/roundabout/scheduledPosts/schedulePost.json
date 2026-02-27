@@ -1,0 +1,36 @@
+{
+  "lexicon": 1,
+  "id": "town.roundabout.scheduledPosts.schedulePost",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Set or change the publish time for a draft post.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["uri", "publishAt"],
+          "properties": {
+            "uri": {
+              "type": "string",
+              "format": "at-uri",
+              "description": "The AT-URI of the draft to schedule"
+            },
+            "publishAt": {
+              "type": "string",
+              "format": "datetime",
+              "description": "When to publish the draft (ISO 8601)"
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "ref",
+          "ref": "lex:town.roundabout.scheduledPosts.defs#draftView"
+        }
+      }
+    }
+  }
+}

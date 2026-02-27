@@ -1,0 +1,40 @@
+{
+  "lexicon": 1,
+  "id": "town.roundabout.scheduledPosts.updatePost",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Update the record content and/or schedule of a draft post. Recomputes CID if record changes.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["uri"],
+          "properties": {
+            "uri": {
+              "type": "string",
+              "format": "at-uri",
+              "description": "The AT-URI of the draft to update"
+            },
+            "record": {
+              "type": "unknown",
+              "description": "New record content (if omitted, record is not changed)"
+            },
+            "scheduledAt": {
+              "type": "string",
+              "format": "datetime",
+              "description": "New publish time (if omitted, schedule is not changed)"
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "ref",
+          "ref": "lex:town.roundabout.scheduledPosts.defs#draftView"
+        }
+      }
+    }
+  }
+}

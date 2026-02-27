@@ -1,0 +1,22 @@
+FROM node:20-alpine
+
+WORKDIR /app/demo
+
+COPY demo/package*.json ./
+RUN npm ci
+
+# Copy source files
+COPY demo/client/ ./client/
+COPY demo/public/ ./public/
+COPY demo/server.ts ./
+
+# Build the browser bundle
+RUN npm run build
+
+# Compile server.ts to server.js in the same directory
+RUN ./node_modules/.bin/tsc --module commonjs --moduleResolution node --target es2020 \
+    --esModuleInterop true server.ts
+
+EXPOSE 1756
+
+CMD ["node", "server.js"]

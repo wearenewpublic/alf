@@ -1,0 +1,28 @@
+{
+  "lexicon": 1,
+  "id": "town.roundabout.scheduledPosts.getPost",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Get a single draft post by AT-URI.",
+      "parameters": {
+        "type": "params",
+        "required": ["uri"],
+        "properties": {
+          "uri": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "The AT-URI of the draft"
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "ref",
+          "ref": "lex:town.roundabout.scheduledPosts.defs#draftView"
+        }
+      }
+    }
+  }
+}

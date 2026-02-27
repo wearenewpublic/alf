@@ -1,0 +1,13 @@
+node_modules/
+assets/puppeteer-config.json
+assets/diagram.css
+assets/*.mmd
+assets/diagram-lifecycle.svg
+dist/
+.env
+data/
+*.db
+*.db-shm
+*.db-wal
+coverage/
+.DS_Store

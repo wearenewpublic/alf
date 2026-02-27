@@ -1,0 +1,31 @@
+{
+  "lexicon": 1,
+  "id": "town.roundabout.scheduledPosts.publishPost",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Immediately publish a draft post to the user's PDS.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["uri"],
+          "properties": {
+            "uri": {
+              "type": "string",
+              "format": "at-uri",
+              "description": "The AT-URI of the draft to publish"
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "ref",
+          "ref": "lex:town.roundabout.scheduledPosts.defs#draftView"
+        }
+      }
+    }
+  }
+}

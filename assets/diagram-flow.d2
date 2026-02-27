@@ -1,0 +1,77 @@
+direction: right
+
+classes: {
+  lane: {
+    style: {
+      fill: "#ffffff"
+      stroke: "#0f172a"
+      stroke-width: 2
+      border-radius: 18
+      shadow: true
+      font-color: "#0f172a"
+      font-size: 14
+      bold: true
+    }
+  }
+
+  node: {
+    style: {
+      stroke: "#0f172a"
+      stroke-width: 2
+      border-radius: 16
+      shadow: true
+      font-color: "#0f172a"
+      font-size: 16
+      bold: true
+    }
+  }
+
+  write_call: { style.fill: "#dbeafe" }
+  alf:       { style.fill: "#e2e8f0" }
+  published: { style.fill: "#bbf7d0" }
+
+  edge: {
+    style: {
+      stroke: "#64748b"
+      stroke-width: 2
+      font-color: "#334155"
+      font-size: 13
+      bold: false
+    }
+  }
+}
+
+CLIENT: "Client App" {
+  class: lane
+  width: 180
+  c: "Client App" {
+    class: node
+    width: 130
+    height: 50
+  }
+  c.class: write_call
+}
+
+ALF: "atproto Latency Fabric (ALF)" {
+  class: lane
+  lifecycle: "" {
+    shape: image
+    icon: ./diagram-lifecycle.svg
+    width: 600
+    height: 1140
+  }
+}
+
+PDS: "User's PDS" {
+  class: lane
+  width: 180
+  p: "record created" {
+    class: node
+    width: 130
+    height: 50
+  }
+  p.class: published
+}
+
+CLIENT.c -> ALF: "write + x-scheduled-at" { class: edge }
+ALF -> PDS.p: "publish (create record)" { class: edge }

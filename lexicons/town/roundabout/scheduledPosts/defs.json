@@ -1,0 +1,70 @@
+{
+  "lexicon": 1,
+  "id": "town.roundabout.scheduledPosts.defs",
+  "defs": {
+    "draftView": {
+      "type": "object",
+      "description": "A draft or scheduled ATProto record operation",
+      "required": [
+        "uri",
+        "collection",
+        "rkey",
+        "action",
+        "status",
+        "createdAt"
+      ],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "The AT-URI of the draft (at://did/collection/rkey)"
+        },
+        "cid": {
+          "type": "string",
+          "description": "Pre-computed DAG-CBOR CID (absent for deleteRecord drafts)"
+        },
+        "collection": {
+          "type": "string",
+          "format": "nsid",
+          "description": "The NSID of the record collection"
+        },
+        "rkey": {
+          "type": "string",
+          "description": "The record key"
+        },
+        "action": {
+          "type": "string",
+          "knownValues": ["create", "put", "delete"],
+          "description": "The type of write operation"
+        },
+        "status": {
+          "type": "string",
+          "knownValues": [
+            "draft",
+            "scheduled",
+            "publishing",
+            "published",
+            "failed",
+            "cancelled"
+          ],
+          "description": "Current status of the draft"
+        },
+        "scheduledAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When the draft is scheduled to be published (ISO 8601)"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When the draft was created (ISO 8601)"
+        },
+        "failureReason": {
+          "type": "string",
+          "description": "Error message if the draft failed to publish",
+          "maxLength": 500
+        }
+      }
+    }
+  }
+}

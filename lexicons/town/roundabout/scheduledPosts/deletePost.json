@@ -1,0 +1,31 @@
+{
+  "lexicon": 1,
+  "id": "town.roundabout.scheduledPosts.deletePost",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Cancel and discard a draft post.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["uri"],
+          "properties": {
+            "uri": {
+              "type": "string",
+              "format": "at-uri",
+              "description": "The AT-URI of the draft to cancel and discard"
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    }
+  }
+}

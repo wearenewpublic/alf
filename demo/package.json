@@ -1,0 +1,23 @@
+{
+  "name": "alf-demo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Demo app showing ALF OAuth integration for scheduled Bluesky posts",
+  "scripts": {
+    "build": "esbuild client/index.ts --bundle --outfile=public/bundle.js --platform=browser --target=es2020",
+    "dev": "npm run build && ts-node server.ts",
+    "start": "npm run build && ts-node server.ts"
+  },
+  "dependencies": {
+    "@atproto/oauth-client-browser": "^0.3.41",
+    "dotenv": "^16.4.5",
+    "esbuild": "^0.27.3",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  }
+}

@@ -1,0 +1,85 @@
+direction: down
+
+classes: {
+  base: {
+    style: {
+      stroke: "#0f172a" # deep slate (strong contrast)
+      stroke-width: 2
+      border-radius: 16
+      shadow: true
+      font-color: "#0f172a" # dark text (better on pastels)
+      font-size: 16
+      bold: true
+      padding: 14
+    }
+  }
+
+  # Pastel fills (high contrast with deep stroke + dark text)
+  write_call: {style.fill: "#dbeafe"} # sky-100
+  draft: {style.fill: "#bfdbfe"} # blue-200
+  scheduled: {style.fill: "#e9d5ff"} # purple-200
+  publishing: {style.fill: "#fed7aa"} # orange-200
+  published: {style.fill: "#bbf7d0"} # green-200
+  failed: {style.fill: "#fecaca"} # red-200
+  cancelled: {style.fill: "#e2e8f0"} # slate-200
+
+  edge_default: {
+    style: {
+      stroke: "#64748b" # slate-500
+      stroke-width: 2
+      font-color: "#334155" # slate-700 (readable)
+      font-size: 13
+      bold: false
+    }
+  }
+}
+
+# Apply base to all nodes, then override fill via class
+"write call".class: base
+draft.class: base
+scheduled.class: base
+publishing.class: base
+published.class: base
+failed.class: base
+cancelled.class: base
+
+"write call".class: write_call
+draft.class: draft
+scheduled.class: scheduled
+publishing.class: publishing
+published.class: published
+failed.class: failed
+cancelled.class: cancelled
+
+# Edges
+"write call" -> draft: "" {class: edge_default}
+
+draft -> scheduled: schedulePost {class: edge_default}
+draft -> publishing: publishPost {class: edge_default}
+scheduled -> publishing: scheduler fires {class: edge_default}
+
+publishing -> published: success {
+  class: edge_default
+  style.stroke: "#16a34a" # green-600
+}
+
+publishing -> failed: max retries {
+  class: edge_default
+  style.stroke: "#dc2626" # red-600
+}
+
+publishing -> scheduled: "retry · 1m / 5m / 15m" {
+  class: edge_default
+  style.stroke: "#ea580c" # orange-600
+  style.stroke-dash: 6
+}
+
+draft -> cancelled: deletePost {
+  class: edge_default
+  style.stroke-dash: 6
+}
+
+scheduled -> cancelled: deletePost {
+  class: edge_default
+  style.stroke-dash: 6
+}

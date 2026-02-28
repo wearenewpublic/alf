@@ -22,7 +22,7 @@ app.get('/oauth/client-metadata.json', (_req, res) => {
     client_name: 'ALF Demo',
     client_uri: SERVICE_URL,
     redirect_uris: [`${SERVICE_URL}/`],
-    scope: 'atproto repo:*?action=create blob:*/*',
+    scope: 'atproto',
     grant_types: ['authorization_code', 'refresh_token'],
     response_types: ['code'],
     token_endpoint_auth_method: 'none',

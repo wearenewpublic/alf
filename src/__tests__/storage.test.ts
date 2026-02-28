@@ -40,6 +40,7 @@ const createMockConfig = (): ServiceConfig => ({
   databaseUrl: undefined,
   encryptionKey: 'a'.repeat(64),
   maxDraftsPerUser: null,
+  allowedCollections: '*',
 });
 
 describe('storage', () => {

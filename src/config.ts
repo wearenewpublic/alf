@@ -19,6 +19,12 @@ export interface ServiceConfig {
   postPublishWebhookUrl?: string;
   /** Maximum number of active drafts per user. null = unlimited. */
   maxDraftsPerUser: number | null;
+  /**
+   * Comma-separated ATProto collection NSIDs to allow. Defaults to "*" (all collections).
+   * Used to build the OAuth scope: `repo:<collection>?action=create`.
+   * Example: "app.bsky.feed.post" to restrict to Bluesky posts only.
+   */
+  allowedCollections: string;
 }
 
 export const getConfig = (): ServiceConfig => {
@@ -38,6 +44,7 @@ export const getConfig = (): ServiceConfig => {
     encryptionKey: process.env.ENCRYPTION_KEY || '',
     postPublishWebhookUrl: process.env.POST_PUBLISH_WEBHOOK_URL,
     maxDraftsPerUser,
+    allowedCollections: process.env.ALLOWED_COLLECTIONS || '*',
   };
 
   if (config.databaseType === 'postgres' && !config.databaseUrl) {

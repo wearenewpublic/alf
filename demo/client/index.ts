@@ -667,12 +667,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (isLocalhost) {
     const port = window.location.port;
     const redirectUri = `http://127.0.0.1${port ? `:${port}` : ''}/`;
-    const clientId = `http://localhost?scope=${encodeURIComponent('atproto transition:generic')}&redirect_uri=${encodeURIComponent(redirectUri)}`;
+    const clientId = `http://localhost?scope=${encodeURIComponent('atproto repo:*?action=create blob:*/*')}&redirect_uri=${encodeURIComponent(redirectUri)}`;
     oauthClientMetadata = {
       client_id: clientId,
       client_name: 'ALF Demo',
       redirect_uris: [redirectUri],
-      scope: 'atproto transition:generic',
+      scope: 'atproto repo:*?action=create blob:*/*',
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],
       token_endpoint_auth_method: 'none',
@@ -686,7 +686,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       client_id: metadataUrl,
       client_name: 'ALF Demo',
       redirect_uris: [`${window.location.origin}/`],
-      scope: 'atproto transition:generic',
+      scope: 'atproto repo:*?action=create blob:*/*',
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],
       token_endpoint_auth_method: 'none',

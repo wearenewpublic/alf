@@ -47,6 +47,7 @@ const createMockConfig = (): ServiceConfig => ({
   databaseUrl: undefined,
   encryptionKey: 'a'.repeat(64),
   maxDraftsPerUser: null,
+  allowedCollections: '*',
 });
 
 /** Flush all pending microtasks and I/O callbacks */

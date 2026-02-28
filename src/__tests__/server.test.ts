@@ -79,6 +79,7 @@ const config: ServiceConfig = {
   databasePath: ':memory:',
   encryptionKey: 'a'.repeat(64),
   maxDraftsPerUser: null,
+  allowedCollections: '*',
 };
 
 const AUTH_HEADER = 'Bearer test-token';

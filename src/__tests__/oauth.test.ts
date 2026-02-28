@@ -36,6 +36,7 @@ const baseConfig = (serviceUrl: string): ServiceConfig => ({
   databasePath: ':memory:',
   encryptionKey: 'a'.repeat(64),
   maxDraftsPerUser: null,
+  allowedCollections: '*',
 });
 
 describe('createOAuthClient', () => {

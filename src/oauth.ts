@@ -123,6 +123,7 @@ let oauthClient: NodeOAuthClient | null = null;
  */
 export function createOAuthClient(config: ServiceConfig): NodeOAuthClient {
   const isHttps = config.serviceUrl.startsWith('https://');
+  const scope = `atproto repo:${config.allowedCollections}?action=create blob:*/*`;
 
   // RFC 8252: loopback client pattern for HTTP (dev), discoverable for HTTPS (prod)
   let clientMetadata: OAuthClientOptions['clientMetadata'];
@@ -132,7 +133,7 @@ export function createOAuthClient(config: ServiceConfig): NodeOAuthClient {
       client_name: 'Scheduled Posts',
       client_uri: config.serviceUrl,
       redirect_uris: [`${config.serviceUrl}/oauth/callback`],
-      scope: 'atproto transition:generic',
+      scope,
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],
       token_endpoint_auth_method: 'none',
@@ -145,14 +146,14 @@ export function createOAuthClient(config: ServiceConfig): NodeOAuthClient {
     const port = new URL(config.serviceUrl).port;
     const redirectUri = `http://127.0.0.1${port ? `:${port}` : ''}/oauth/callback`;
     const loopbackParams = new URLSearchParams({
-      scope: 'atproto transition:generic',
+      scope,
       redirect_uri: redirectUri,
     });
     clientMetadata = {
       client_id: `http://localhost?${loopbackParams.toString()}`,
       client_name: 'Scheduled Posts',
       redirect_uris: [redirectUri],
-      scope: 'atproto transition:generic',
+      scope,
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],
       token_endpoint_auth_method: 'none',

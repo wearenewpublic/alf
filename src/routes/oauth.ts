@@ -20,13 +20,15 @@ export function createOAuthRouter(config: ServiceConfig): Router {
    * OAuth client metadata document (ATProto client registration)
    * PDSes use this to discover client capabilities
    */
+  const scope = `atproto repo:${config.allowedCollections}?action=create blob:*/*`;
+
   router.get('/client-metadata.json', (_req, res) => {
     res.json({
       client_id: `${config.serviceUrl}/oauth/client-metadata.json`,
       client_name: 'Scheduled Posts',
       client_uri: config.serviceUrl,
       redirect_uris: [`${config.serviceUrl}/oauth/callback`],
-      scope: 'atproto transition:generic',
+      scope,
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],
       token_endpoint_auth_method: 'none',
@@ -76,7 +78,7 @@ export function createOAuthRouter(config: ServiceConfig): Router {
       }
 
       const url = await oauthClient.authorize(handle, {
-        scope: 'atproto transition:generic',
+        scope,
         ...(stateKey ? { state: stateKey } : {}),
       });
 

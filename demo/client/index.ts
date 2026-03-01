@@ -13,8 +13,11 @@ let oauthClient: BrowserOAuthClient | null = null;
 let session: OAuthSession | null = null;
 let postsInterval: ReturnType<typeof setInterval> | null = null;
 let lastPosts: unknown[] = [];
+let lastSchedules: unknown[] = [];
 let editingUri: string | null = null;
 let userLabel = '';
+let activeTab: 'timed' | 'webhook' | 'recurring' = 'timed';
+let outerTab: 'create' | 'drafts' | 'delivered' = 'create';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -89,7 +92,6 @@ async function render(): Promise<void> {
   const did = session.sub;
   userLabel = await resolveUserLabel(did);
 
-  // Check whether ALF has an active session for this user
   let alfAuthorized = false;
   try {
     const response = await alfFetch('/oauth/status');
@@ -113,8 +115,12 @@ async function render(): Promise<void> {
   document.getElementById('did-label-3')!.textContent = userLabel;
   showView('view-authorized');
   await loadPosts();
+  await loadSchedules();
   if (postsInterval) clearInterval(postsInterval);
-  postsInterval = setInterval(loadPosts, 5000);
+  postsInterval = setInterval(async () => {
+    await loadPosts();
+    await loadSchedules();
+  }, 5000);
 }
 
 // ---------------------------------------------------------------------------
@@ -140,7 +146,6 @@ function wireLoginButton(): void {
 
     try {
       await oauthClient!.signInRedirect(handle);
-      // signInRedirect navigates away, so nothing below this runs
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       errEl.textContent = message || 'Login failed.';
@@ -195,7 +200,6 @@ function wireTimePresets(): void {
     setPreset(null, 'preset-draft');
   });
 
-  // Clear active state when user manually edits the time input
   input.addEventListener('input', () => {
     presets.forEach(btn => btn.classList.remove('active'));
   });
@@ -248,16 +252,15 @@ function startEdit(encodedUri: string): void {
     timeInput.value = scheduledAt ? isoToDatetimeLocal(scheduledAt) : '';
   }
 
-  formTitle.textContent = 'Edit Post';
+  switchOuterTab('create');
+  switchTab('timed');
+  formTitle.textContent = '✎ Editing post';
+  formTitle.classList.remove('hidden');
   scheduleBtn.textContent = 'Save changes';
   cancelBtn.classList.remove('hidden');
 
-  // Clear preset active state — the loaded time doesn't match a preset
   document.querySelectorAll<HTMLButtonElement>('.btn-preset').forEach(b => b.classList.remove('active'));
-
-  // Scroll the form into view
   formTitle.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
   renderPosts();
 }
 
@@ -265,10 +268,10 @@ function cancelEdit(): void {
   editingUri = null;
   (document.getElementById('post-text') as HTMLTextAreaElement).value = '';
   (document.getElementById('scheduled-at') as HTMLInputElement).value = '';
-  document.getElementById('form-title')!.textContent = 'Schedule a Post';
-  (document.getElementById('schedule-btn') as HTMLButtonElement).textContent = 'Schedule Post';
+  (document.getElementById('form-title') as HTMLElement).classList.add('hidden');
   document.getElementById('cancel-edit-btn')!.classList.add('hidden');
   document.querySelectorAll<HTMLButtonElement>('.btn-preset').forEach(b => b.classList.remove('active'));
+  switchTab(activeTab);
   renderPosts();
 }
 
@@ -294,7 +297,7 @@ async function detectFacets(text: string): Promise<Facet[]> {
   const urlRegex = /https?:\/\/[^\s\]>)'"<]+/g;
   let m: RegExpExecArray | null;
   while ((m = urlRegex.exec(text)) !== null) {
-    const url = m[0].replace(/[.,;:!?'")\]]+$/, ''); // trim trailing punctuation
+    const url = m[0].replace(/[.,;:!?'")\]]+$/, '');
     const byteStart = byteOffset(m.index);
     const byteEnd = byteStart + encoder.encode(url).length;
     facets.push({ index: { byteStart, byteEnd }, features: [{ $type: 'app.bsky.richtext.facet#link', uri: url }] });
@@ -330,6 +333,38 @@ async function detectFacets(text: string): Promise<Facet[]> {
 }
 
 // ---------------------------------------------------------------------------
+// Tab switching
+// ---------------------------------------------------------------------------
+
+function switchOuterTab(tab: 'create' | 'drafts' | 'delivered'): void {
+  outerTab = tab;
+  document.querySelectorAll('[data-outer-tab]').forEach(t => t.classList.remove('active'));
+  document.querySelector(`[data-outer-tab="${tab}"]`)?.classList.add('active');
+  (document.getElementById('outer-pane-create') as HTMLElement).classList.toggle('hidden', tab !== 'create');
+  (document.getElementById('outer-pane-drafts') as HTMLElement).classList.toggle('hidden', tab !== 'drafts');
+  (document.getElementById('outer-pane-delivered') as HTMLElement).classList.toggle('hidden', tab !== 'delivered');
+  if (tab === 'drafts' || tab === 'delivered') void loadPosts();
+}
+
+function switchTab(tab: 'timed' | 'webhook' | 'recurring'): void {
+  activeTab = tab;
+
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelector(`.tab[data-tab="${tab}"]`)?.classList.add('active');
+
+  const isPost = tab === 'timed' || tab === 'webhook';
+  (document.getElementById('post-form-fields') as HTMLElement).classList.toggle('hidden', !isPost);
+  (document.getElementById('timed-schedule-section') as HTMLElement).classList.toggle('hidden', tab !== 'timed');
+  (document.getElementById('webhook-note') as HTMLElement).classList.toggle('hidden', tab !== 'webhook');
+  (document.getElementById('recurring-section') as HTMLElement).classList.toggle('hidden', tab !== 'recurring');
+
+  const btn = document.getElementById('schedule-btn') as HTMLButtonElement;
+  if (btn && !editingUri) {
+    btn.textContent = tab === 'webhook' ? 'Create Webhook Draft' : 'Schedule Post';
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Schedule / update post
 // ---------------------------------------------------------------------------
 
@@ -338,6 +373,18 @@ function wireScheduleButton(): void {
   const cancelBtn = document.getElementById('cancel-edit-btn') as HTMLButtonElement;
 
   cancelBtn.addEventListener('click', () => cancelEdit());
+
+  document.querySelectorAll('[data-outer-tab]').forEach(tabEl => {
+    tabEl.addEventListener('click', () => {
+      switchOuterTab((tabEl as HTMLElement).dataset.outerTab as 'create' | 'drafts' | 'delivered');
+    });
+  });
+
+  document.querySelectorAll('[data-tab]').forEach(tabEl => {
+    tabEl.addEventListener('click', () => {
+      switchTab((tabEl as HTMLElement).dataset.tab as 'timed' | 'webhook' | 'recurring');
+    });
+  });
 
   btn.addEventListener('click', async () => {
     if (editingUri) {
@@ -352,6 +399,7 @@ async function performCreatePost(): Promise<void> {
   const btn = document.getElementById('schedule-btn') as HTMLButtonElement;
   const text = (document.getElementById('post-text') as HTMLTextAreaElement).value.trim();
   const scheduledAtValue = (document.getElementById('scheduled-at') as HTMLInputElement).value;
+  const isTriggerMode = activeTab === 'webhook';
   const imageInput = document.getElementById('image-input') as HTMLInputElement;
   const imageFile = imageInput.files?.[0] ?? null;
   const successEl = document.getElementById('schedule-success') as HTMLElement;
@@ -394,9 +442,11 @@ async function performCreatePost(): Promise<void> {
       };
     }
 
-    btn.textContent = 'Scheduling...';
+    btn.textContent = isTriggerMode ? 'Creating...' : 'Scheduling...';
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (scheduledAtValue) {
+    if (isTriggerMode) {
+      headers['x-trigger'] = 'webhook';
+    } else if (scheduledAtValue) {
       headers['x-scheduled-at'] = new Date(scheduledAtValue).toISOString();
     }
 
@@ -419,13 +469,18 @@ async function performCreatePost(): Promise<void> {
       }),
     });
 
-    const data = await response.json() as { uri?: string; error?: string; message?: string };
+    const data = await response.json() as { uri?: string; triggerUrl?: string; error?: string; message?: string };
 
     if (!response.ok) {
       errEl.textContent = data.error || data.message || 'Failed to schedule post.';
       errEl.classList.remove('hidden');
     } else {
-      successEl.textContent = `Post scheduled! URI: ${data.uri || JSON.stringify(data)}`;
+      if (data.triggerUrl) {
+        const safeUrl = escHtml(data.triggerUrl);
+        successEl.innerHTML = `Draft created! Call this URL (POST) to publish on demand:<br><code style="display:block;word-break:break-all;font-size:0.78rem;margin-top:0.3rem;padding:0.3rem 0;">${safeUrl}</code>`;
+      } else {
+        successEl.textContent = `Post scheduled! URI: ${data.uri ?? ''}`;
+      }
       successEl.classList.remove('hidden');
       (document.getElementById('post-text') as HTMLTextAreaElement).value = '';
       (document.getElementById('scheduled-at') as HTMLInputElement).value = '';
@@ -434,13 +489,12 @@ async function performCreatePost(): Promise<void> {
       (document.getElementById('image-preview-wrap') as HTMLElement).classList.add('hidden');
       await loadPosts();
     }
-  } catch (err) {
-    const errEl2 = document.getElementById('schedule-error') as HTMLElement;
-    errEl2.textContent = 'Network error.';
-    errEl2.classList.remove('hidden');
+  } catch (_) {
+    errEl.textContent = 'Network error.';
+    errEl.classList.remove('hidden');
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Schedule Post';
+    btn.textContent = activeTab === 'webhook' ? 'Create Webhook Draft' : 'Schedule Post';
   }
 }
 
@@ -515,19 +569,35 @@ async function loadPosts(): Promise<void> {
       lastPosts = (data as any).posts || (data as any).drafts || [];
     }
     renderPosts();
+    renderDelivered();
   } catch (_) {
     listEl.innerHTML = '<div class="empty-state">Error loading posts.</div>';
   }
 }
 
+function wireCopyTrigger(container: Element): void {
+  container.querySelectorAll('[data-action="copy-trigger"]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const url = (btn as HTMLElement).dataset.url!;
+      void navigator.clipboard.writeText(url).then(() => {
+        (btn as HTMLElement).textContent = 'Copied!';
+        setTimeout(() => { (btn as HTMLElement).textContent = 'Copy'; }, 2000);
+      });
+    });
+  });
+}
+
 function renderPosts(): void {
   const listEl = document.getElementById('posts-list')!;
-  if (!Array.isArray(lastPosts) || lastPosts.length === 0) {
+  const active = Array.isArray(lastPosts)
+    ? lastPosts.filter((p: any) => p.status !== 'published')
+    : [];
+  if (active.length === 0) {
     listEl.innerHTML = '<div class="empty-state">No scheduled posts yet.</div>';
     return;
   }
 
-  listEl.innerHTML = lastPosts.map(post => renderPostCard(post as Record<string, any>)).join('');
+  listEl.innerHTML = active.map(post => renderPostCard(post as Record<string, any>)).join('');
 
   listEl.querySelectorAll('[data-action="publish"]').forEach(btn => {
     btn.addEventListener('click', () => publishPost((btn as HTMLElement).dataset.uri!));
@@ -538,6 +608,20 @@ function renderPosts(): void {
   listEl.querySelectorAll('[data-action="edit"]').forEach(btn => {
     btn.addEventListener('click', () => startEdit((btn as HTMLElement).dataset.uri!));
   });
+  wireCopyTrigger(listEl);
+}
+
+function renderDelivered(): void {
+  const listEl = document.getElementById('delivered-list')!;
+  const delivered = Array.isArray(lastPosts)
+    ? lastPosts.filter((p: any) => p.status === 'published')
+    : [];
+  if (delivered.length === 0) {
+    listEl.innerHTML = '<div class="empty-state">No delivered posts yet.</div>';
+    return;
+  }
+  listEl.innerHTML = delivered.map(post => renderPostCard(post as Record<string, any>)).join('');
+  wireCopyTrigger(listEl);
 }
 
 function renderPostCard(post: Record<string, any>): string {
@@ -563,14 +647,28 @@ function renderPostCard(post: Record<string, any>): string {
 
   const bskyUrl = status === 'published' ? atUriToBskyUrl(uri) : null;
 
+  const scheduleIdBadge = post.scheduleId
+    ? `<span class="badge badge-recurring" title="Part of recurring schedule">recurring</span>`
+    : '';
+
+  const triggerUrlHtml = post.triggerUrl
+    ? `<div class="trigger-url-box">
+        <span class="trigger-url-label">Trigger URL:</span>
+        <code class="trigger-url-value">${escHtml(post.triggerUrl as string)}</code>
+        <button class="btn btn-outline" data-action="copy-trigger" data-url="${escHtml(post.triggerUrl as string)}" style="padding:0.2rem 0.5rem;font-size:0.72rem;flex-shrink:0;">Copy</button>
+      </div>`
+    : '';
+
   return `
     <div class="post-item${isEditing ? ' post-item-editing' : ''}">
       <div class="post-item-header">
         <span class="badge ${badgeCls}">${status}</span>
+        ${scheduleIdBadge}
         ${isEditing ? '<span style="font-size:0.72rem;color:var(--indigo);font-weight:600;margin-left:auto;">editing ↑</span>' : ''}
       </div>
       <div class="post-text">${escHtml(preview) || '<em style="color:var(--text-faint)">(no text)</em>'}</div>
       <div class="post-meta">${scheduledTime}</div>
+      ${triggerUrlHtml}
       <div class="post-actions">
         ${bskyUrl ? `<a href="${bskyUrl}" target="_blank" rel="noopener" class="post-bsky-link">View on Bluesky →</a>` : ''}
         ${canEdit && !isEditing ? `
@@ -617,6 +715,399 @@ async function cancelPost(encodedUri: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Recurring Schedules
+// ---------------------------------------------------------------------------
+
+async function loadSchedules(): Promise<void> {
+  const listEl = document.getElementById('schedules-list');
+  if (!listEl) return;
+  try {
+    const response = await alfFetch(
+      `/xrpc/town.roundabout.scheduledPosts.listSchedules?repo=${encodeURIComponent(session!.sub)}`,
+    );
+    if (!response.ok) {
+      listEl.innerHTML = '<div class="empty-state">Could not load schedules.</div>';
+      return;
+    }
+    const data = await response.json() as { schedules?: unknown[] };
+    lastSchedules = data.schedules ?? [];
+    renderSchedules();
+  } catch (_) {
+    listEl.innerHTML = '<div class="empty-state">Error loading schedules.</div>';
+  }
+}
+
+function renderSchedules(): void {
+  const listEl = document.getElementById('schedules-list');
+  if (!listEl) return;
+  if (!Array.isArray(lastSchedules) || lastSchedules.length === 0) {
+    listEl.innerHTML = '<div class="empty-state">No recurring schedules yet.</div>';
+    return;
+  }
+
+  listEl.innerHTML = lastSchedules.map(s => renderScheduleCard(s as Record<string, any>)).join('');
+
+  listEl.querySelectorAll('[data-action="pause-schedule"]').forEach(btn => {
+    btn.addEventListener('click', () => pauseSchedule((btn as HTMLElement).dataset.id!));
+  });
+  listEl.querySelectorAll('[data-action="resume-schedule"]').forEach(btn => {
+    btn.addEventListener('click', () => resumeSchedule((btn as HTMLElement).dataset.id!));
+  });
+  listEl.querySelectorAll('[data-action="delete-schedule"]').forEach(btn => {
+    btn.addEventListener('click', () => deleteScheduleItem((btn as HTMLElement).dataset.id!));
+  });
+}
+
+function describeRule(rule: Record<string, any>, timezone: string): string {
+  const time = (rule.time as Record<string, any>) || {};
+  const hour: number = time.hour ?? 0;
+  const minute: number = time.minute ?? 0;
+  const timeStr = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  const tz = timezone || (time.timezone as string) || 'UTC';
+
+  if (rule.type === 'daily') {
+    const interval: number = rule.interval ?? 1;
+    return interval === 1
+      ? `Daily at ${timeStr} ${tz}`
+      : `Every ${interval} days at ${timeStr} ${tz}`;
+  }
+  if (rule.type === 'weekly') {
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const days = ((rule.daysOfWeek as number[]) ?? []).map((d: number) => dayNames[d] ?? String(d)).join(', ');
+    return `Weekly on ${days} at ${timeStr} ${tz}`;
+  }
+  if (rule.type === 'monthly_on_day') {
+    return `Monthly on day ${rule.dayOfMonth as number} at ${timeStr} ${tz}`;
+  }
+  if (rule.type === 'monthly_nth_weekday') {
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const nth = (rule.nth as number) === -1 ? 'last' : `${rule.nth as number}th`;
+    return `Monthly, ${nth} ${dayNames[rule.weekday as number] ?? String(rule.weekday)} at ${timeStr} ${tz}`;
+  }
+  if (rule.type === 'monthly_last_business_day') {
+    return `Monthly, last business day at ${timeStr} ${tz}`;
+  }
+  if (rule.type === 'yearly_on_month_day') {
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthName = monthNames[(rule.month as number) - 1] ?? String(rule.month);
+    return `Yearly on ${monthName} ${rule.dayOfMonth as number} at ${timeStr} ${tz}`;
+  }
+  if (rule.type === 'yearly_nth_weekday') {
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const nth = (rule.nth as number) === -1 ? 'last' : `${rule.nth as number}th`;
+    const monthName = monthNames[(rule.month as number) - 1] ?? String(rule.month);
+    return `Yearly, ${nth} ${dayNames[rule.weekday as number] ?? String(rule.weekday)} of ${monthName} at ${timeStr} ${tz}`;
+  }
+  if (rule.type === 'quarterly_last_weekday') {
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    return `Quarterly, last ${dayNames[rule.weekday as number] ?? String(rule.weekday)} at ${timeStr} ${tz}`;
+  }
+  if (rule.type === 'once') {
+    return `Once at ${new Date(rule.datetime as string).toLocaleString()}`;
+  }
+  return `${rule.type as string} schedule`;
+}
+
+function renderScheduleCard(schedule: Record<string, any>): string {
+  const status: string = schedule.status || 'active';
+  const statusBadge: Record<string, string> = {
+    active: 'badge-published',
+    paused: 'badge-draft',
+    cancelled: 'badge-pending',
+    completed: 'badge-scheduled',
+    error: 'badge-failed',
+  };
+  const badgeCls = statusBadge[status] || 'badge-pending';
+
+  const rule = (schedule.recurrenceRule as Record<string, any>) || {};
+  const ruleCore = (rule.rule as Record<string, any>) || {};
+  const ruleDesc = describeRule(ruleCore, schedule.timezone as string);
+
+  const fireCount: number = schedule.fireCount ?? 0;
+  const lastFired = schedule.lastFiredAt
+    ? new Date(schedule.lastFiredAt as string).toLocaleString()
+    : null;
+
+  const id: string = schedule.id || '';
+  const staticText: string = (schedule.record as Record<string, any> | undefined)?.text ?? '';
+  const preview = staticText ? (staticText.length > 80 ? staticText.slice(0, 80) + '…' : staticText) : '';
+
+  return `
+    <div class="schedule-item">
+      <div class="post-item-header">
+        <span class="badge ${badgeCls}">${escHtml(status)}</span>
+        <span style="font-size:0.82rem;color:var(--text);font-weight:500;">${escHtml(ruleDesc)}</span>
+      </div>
+      ${preview ? `<div class="post-text" style="font-size:0.82rem;">${escHtml(preview)}</div>` : ''}
+      ${schedule.contentUrl ? `<div class="post-meta">Dynamic content: <code>${escHtml(schedule.contentUrl as string)}</code></div>` : ''}
+      <div class="post-meta">
+        Fired ${fireCount} time${fireCount === 1 ? '' : 's'}${lastFired ? ` · Last: ${lastFired}` : ''}
+      </div>
+      <div class="post-actions">
+        ${status === 'active' ? `<button class="btn btn-outline" data-action="pause-schedule" data-id="${escHtml(id)}">Pause</button>` : ''}
+        ${status === 'paused' ? `<button class="btn btn-outline" data-action="resume-schedule" data-id="${escHtml(id)}">Resume</button>` : ''}
+        ${status !== 'cancelled' && status !== 'completed' ? `<button class="btn btn-danger" data-action="delete-schedule" data-id="${escHtml(id)}">Delete</button>` : ''}
+      </div>
+    </div>`;
+}
+
+async function pauseSchedule(id: string): Promise<void> {
+  try {
+    const response = await alfFetch('/xrpc/town.roundabout.scheduledPosts.updateSchedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, status: 'paused' }),
+    });
+    const data = await response.json() as { error?: string };
+    if (!response.ok) alert(data.error || 'Failed to pause schedule.');
+    await loadSchedules();
+  } catch (_) {
+    alert('Network error.');
+  }
+}
+
+async function resumeSchedule(id: string): Promise<void> {
+  try {
+    const response = await alfFetch('/xrpc/town.roundabout.scheduledPosts.updateSchedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, status: 'active' }),
+    });
+    const data = await response.json() as { error?: string };
+    if (!response.ok) alert(data.error || 'Failed to resume schedule.');
+    await loadSchedules();
+    await loadPosts();
+  } catch (_) {
+    alert('Network error.');
+  }
+}
+
+async function deleteScheduleItem(id: string): Promise<void> {
+  if (!confirm('Delete this recurring schedule and cancel its pending draft?')) return;
+  try {
+    const response = await alfFetch('/xrpc/town.roundabout.scheduledPosts.deleteSchedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    const data = await response.json() as { error?: string };
+    if (!response.ok) alert(data.error || 'Failed to delete schedule.');
+    await loadSchedules();
+    await loadPosts();
+  } catch (_) {
+    alert('Network error.');
+  }
+}
+
+const INTERVAL_UNITS: Record<string, string> = {
+  daily: 'days',
+  weekly: 'weeks',
+  monthly: 'months',
+  quarterly: 'quarters',
+  yearly: 'years',
+};
+
+function updateScheduleFormVisibility(): void {
+  const type = (document.getElementById('sched-type') as HTMLSelectElement).value;
+  const monthlyPattern = (document.getElementById('sched-monthly-pattern') as HTMLSelectElement).value;
+  const yearlyPattern = (document.getElementById('sched-yearly-pattern') as HTMLSelectElement).value;
+
+  const show = (id: string, visible: boolean) =>
+    document.getElementById(id)?.classList.toggle('hidden', !visible);
+
+  // Interval unit label
+  const unitEl = document.getElementById('sched-interval-unit');
+  if (unitEl) unitEl.textContent = INTERVAL_UNITS[type] ?? '';
+
+  // Hide the nth-col (ordinal) for quarterly — it only has "last"
+  const nthCol = document.getElementById('sched-nth-col');
+  if (nthCol) nthCol.classList.toggle('hidden', type === 'quarterly');
+
+  show('sched-weekly-opts', type === 'weekly');
+  show('sched-monthly-opts', type === 'monthly');
+  show('sched-yearly-opts', type === 'yearly');
+
+  // Month selector: yearly only
+  show('sched-month-row', type === 'yearly');
+
+  // Day of month: monthly on_day OR yearly on_month_day
+  const showDom = (type === 'monthly' && monthlyPattern === 'on_day') ||
+                  (type === 'yearly' && yearlyPattern === 'on_month_day');
+  show('sched-dom-row', showDom);
+
+  // Nth + weekday: monthly nth_weekday, quarterly (all), yearly nth_weekday
+  const showNthWeekday = (type === 'monthly' && monthlyPattern === 'nth_weekday') ||
+                         type === 'quarterly' ||
+                         (type === 'yearly' && yearlyPattern === 'nth_weekday');
+  show('sched-nth-weekday-row', showNthWeekday);
+}
+
+function wireCreateScheduleForm(): void {
+  const typeSelect = document.getElementById('sched-type') as HTMLSelectElement;
+  const monthlyPatternSelect = document.getElementById('sched-monthly-pattern') as HTMLSelectElement;
+  const yearlyPatternSelect = document.getElementById('sched-yearly-pattern') as HTMLSelectElement;
+
+  typeSelect.addEventListener('change', updateScheduleFormVisibility);
+  monthlyPatternSelect.addEventListener('change', updateScheduleFormVisibility);
+  yearlyPatternSelect.addEventListener('change', updateScheduleFormVisibility);
+
+  // Set initial state
+  updateScheduleFormVisibility();
+
+  document.getElementById('create-schedule-btn')!.addEventListener('click', performCreateSchedule);
+}
+
+async function performCreateSchedule(): Promise<void> {
+  const btn = document.getElementById('create-schedule-btn') as HTMLButtonElement;
+  const successEl = document.getElementById('sched-success') as HTMLElement;
+  const errEl = document.getElementById('sched-error') as HTMLElement;
+
+  successEl.classList.add('hidden');
+  errEl.classList.add('hidden');
+
+  const text = (document.getElementById('sched-text') as HTMLTextAreaElement).value.trim();
+  const type = (document.getElementById('sched-type') as HTMLSelectElement).value;
+  const interval = parseInt((document.getElementById('sched-interval') as HTMLInputElement).value, 10) || 1;
+  const monthlyPattern = (document.getElementById('sched-monthly-pattern') as HTMLSelectElement).value;
+  const yearlyPattern = (document.getElementById('sched-yearly-pattern') as HTMLSelectElement).value;
+  const hour = parseInt((document.getElementById('sched-hour') as HTMLInputElement).value, 10);
+  const minute = parseInt((document.getElementById('sched-minute') as HTMLInputElement).value, 10);
+  const timezone = (document.getElementById('sched-tz') as HTMLSelectElement).value;
+
+  if (!text) {
+    errEl.textContent = 'Post text is required.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  const timeSpec = { type: 'wall_time', hour, minute, timezone };
+  const intervalOpt = interval > 1 ? { interval } : {};
+  let ruleCore: Record<string, unknown>;
+
+  if (type === 'daily') {
+    ruleCore = { type: 'daily', ...intervalOpt, time: timeSpec };
+
+  } else if (type === 'weekly') {
+    const checkedDays = Array.from(
+      document.querySelectorAll<HTMLInputElement>('input[name="sched-day"]:checked'),
+    ).map(cb => parseInt(cb.value, 10));
+    if (checkedDays.length === 0) {
+      errEl.textContent = 'Select at least one day of the week.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    ruleCore = { type: 'weekly', ...intervalOpt, daysOfWeek: checkedDays, time: timeSpec };
+
+  } else if (type === 'monthly') {
+    if (monthlyPattern === 'on_day') {
+      const dom = parseInt((document.getElementById('sched-dom') as HTMLInputElement).value, 10);
+      ruleCore = { type: 'monthly_on_day', ...intervalOpt, dayOfMonth: dom, time: timeSpec };
+    } else if (monthlyPattern === 'nth_weekday') {
+      const nth = parseInt((document.getElementById('sched-nth') as HTMLSelectElement).value, 10);
+      const weekday = parseInt((document.getElementById('sched-weekday') as HTMLSelectElement).value, 10);
+      ruleCore = { type: 'monthly_nth_weekday', ...intervalOpt, nth, weekday, time: timeSpec };
+    } else {
+      // last_business_day
+      ruleCore = { type: 'monthly_last_business_day', ...intervalOpt, time: timeSpec };
+    }
+
+  } else if (type === 'quarterly') {
+    const weekday = parseInt((document.getElementById('sched-weekday') as HTMLSelectElement).value, 10);
+    ruleCore = { type: 'quarterly_last_weekday', ...intervalOpt, weekday, time: timeSpec };
+
+  } else if (type === 'yearly') {
+    const month = parseInt((document.getElementById('sched-month') as HTMLSelectElement).value, 10);
+    if (yearlyPattern === 'on_month_day') {
+      const dom = parseInt((document.getElementById('sched-dom') as HTMLInputElement).value, 10);
+      ruleCore = { type: 'yearly_on_month_day', ...intervalOpt, month, dayOfMonth: dom, time: timeSpec };
+    } else {
+      const nth = parseInt((document.getElementById('sched-nth') as HTMLSelectElement).value, 10);
+      const weekday = parseInt((document.getElementById('sched-weekday') as HTMLSelectElement).value, 10);
+      ruleCore = { type: 'yearly_nth_weekday', ...intervalOpt, month, nth, weekday, time: timeSpec };
+    }
+
+  } else {
+    ruleCore = { type, time: timeSpec };
+  }
+
+  const recurrenceRule = { rule: ruleCore };
+  const facets = await detectFacets(text);
+  const record: Record<string, unknown> = {
+    $type: 'app.bsky.feed.post',
+    text,
+    createdAt: new Date().toISOString(),
+  };
+  if (facets.length > 0) record.facets = facets;
+
+  btn.disabled = true;
+  btn.textContent = 'Creating...';
+
+  try {
+    const response = await alfFetch('/xrpc/town.roundabout.scheduledPosts.createSchedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ collection: 'app.bsky.feed.post', recurrenceRule, timezone, record }),
+    });
+
+    const data = await response.json() as { schedule?: Record<string, any>; error?: string; message?: string };
+
+    if (!response.ok) {
+      errEl.textContent = data.error || data.message || 'Failed to create schedule.';
+      errEl.classList.remove('hidden');
+    } else {
+      successEl.textContent = 'Schedule created! First draft queued.';
+      successEl.classList.remove('hidden');
+      (document.getElementById('sched-text') as HTMLTextAreaElement).value = '';
+      await loadSchedules();
+      await loadPosts();
+    }
+  } catch (_) {
+    errEl.textContent = 'Network error.';
+    errEl.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Create Schedule';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Re-authorize ALF (refresh server-side OAuth session without losing drafts)
+// ---------------------------------------------------------------------------
+
+function wireReauth(): void {
+  const btn = document.getElementById('reauth-btn') as HTMLButtonElement;
+  btn.addEventListener('click', () => {
+    if (!session) return;
+    const did = session.sub;
+    const redirectBack = encodeURIComponent(`${window.location.origin}/?authorized=true`);
+    window.location.href = `${alfUrl}/oauth/authorize?handle=${encodeURIComponent(did)}&redirect_uri=${redirectBack}`;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Sign out (revoke OAuth session, preserve drafts)
+// ---------------------------------------------------------------------------
+
+function wireSignOut(): void {
+  const btn = document.getElementById('signout-btn') as HTMLButtonElement;
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    btn.textContent = 'Signing out...';
+    try {
+      await oauthClient!.revoke(session!.sub);
+    } catch (_) {
+      // best-effort
+    }
+    session = null;
+    if (postsInterval) clearInterval(postsInterval);
+    hideAllViews();
+    showView('view-login');
+    document.getElementById('loading')!.classList.add('hidden');
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Delete account
 // ---------------------------------------------------------------------------
 
@@ -649,18 +1140,16 @@ function wireDeleteAccount(): void {
 // ---------------------------------------------------------------------------
 
 document.addEventListener('DOMContentLoaded', async () => {
+  try {
   // 1. Fetch ALF URL from /api/config
   try {
-    const cfg = await fetch('/api/config').then(r => r.json()) as { alfUrl?: string };
+    const cfg = await fetch('/api/config', { signal: AbortSignal.timeout(5000) }).then(r => r.json()) as { alfUrl?: string };
     alfUrl = cfg.alfUrl || '';
   } catch (_) {
     alfUrl = '';
   }
 
   // 2. Create BrowserOAuthClient.
-  // On localhost use the RFC 8252 loopback pattern (no metadata document needed).
-  // On a real domain use a hosted client metadata document so the PDS can
-  // redirect back to the actual origin instead of 127.0.0.1.
   const isLocalhost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
   let oauthClientMetadata: Parameters<typeof BrowserOAuthClient>[0]['clientMetadata'];
   let allowHttp: boolean;
@@ -707,20 +1196,26 @@ document.addEventListener('DOMContentLoaded', async () => {
   wireTimePresets();
   wireImagePicker();
   wireScheduleButton();
+  wireCreateScheduleForm();
+  wireReauth();
+  wireSignOut();
   wireDeleteAccount();
 
   // 4. Call client.init() — detects OAuth callback params or restores existing session
   let initResult: { session: OAuthSession; state?: string } | undefined;
   try {
-    initResult = await oauthClient.init();
+    initResult = await Promise.race([
+      oauthClient.init(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('OAuth init timed out')), 8000),
+      ),
+    ]);
   } catch (_) {
     initResult = undefined;
   }
 
   if (initResult) {
     session = initResult.session;
-
-    // 5. If session came from an OAuth callback ('state' in result), clean the URL
     if ('state' in initResult) {
       history.replaceState({}, '', '/?authorized=true');
     }
@@ -735,6 +1230,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     setTimeout(() => banner.classList.add('hidden'), 5000);
   }
 
-  // 6. Render appropriate view
+  } catch (_) {
+    // unexpected boot error — fall through so render() always runs
+  }
+
+  // 6. Render appropriate view (always runs, even if boot fails)
   await render();
 });

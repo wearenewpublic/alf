@@ -25,6 +25,8 @@ export interface ServiceConfig {
    * Example: "app.bsky.feed.post" to restrict to Bluesky posts only.
    */
   allowedCollections: string;
+  /** OAuth scope string derived from allowedCollections. Single source of truth. */
+  oauthScope: string;
 }
 
 export const getConfig = (): ServiceConfig => {
@@ -45,6 +47,7 @@ export const getConfig = (): ServiceConfig => {
     postPublishWebhookUrl: process.env.POST_PUBLISH_WEBHOOK_URL,
     maxDraftsPerUser,
     allowedCollections: process.env.ALLOWED_COLLECTIONS || '*',
+    oauthScope: `atproto repo:${process.env.ALLOWED_COLLECTIONS || '*'}?action=create blob:*/*`,
   };
 
   if (config.databaseType === 'postgres' && !config.databaseUrl) {

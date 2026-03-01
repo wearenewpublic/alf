@@ -27,6 +27,7 @@ const baseConfig = (overrides: Partial<ServiceConfig> = {}): ServiceConfig => ({
   encryptionKey: 'a'.repeat(64),
   maxDraftsPerUser: null,
   allowedCollections: '*',
+  oauthScope: 'atproto repo:*?action=create blob:*/*',
   ...overrides,
 });
 

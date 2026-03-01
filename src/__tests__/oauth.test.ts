@@ -37,6 +37,7 @@ const baseConfig = (serviceUrl: string): ServiceConfig => ({
   encryptionKey: 'a'.repeat(64),
   maxDraftsPerUser: null,
   allowedCollections: '*',
+  oauthScope: 'atproto repo:*?action=create blob:*/*',
 });
 
 describe('createOAuthClient', () => {

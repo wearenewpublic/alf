@@ -41,6 +41,7 @@ const createMockConfig = (): ServiceConfig => ({
   encryptionKey: 'a'.repeat(64),
   maxDraftsPerUser: null,
   allowedCollections: '*',
+  oauthScope: 'atproto repo:*?action=create blob:*/*',
 });
 
 describe('storage', () => {

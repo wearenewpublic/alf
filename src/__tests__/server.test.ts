@@ -80,6 +80,7 @@ const config: ServiceConfig = {
   encryptionKey: 'a'.repeat(64),
   maxDraftsPerUser: null,
   allowedCollections: '*',
+  oauthScope: 'atproto repo:*?action=create blob:*/*',
 };
 
 const AUTH_HEADER = 'Bearer test-token';

@@ -20,7 +20,7 @@ export function createOAuthRouter(config: ServiceConfig): Router {
    * OAuth client metadata document (ATProto client registration)
    * PDSes use this to discover client capabilities
    */
-  const scope = `atproto repo:${config.allowedCollections}?action=create blob:*/*`;
+  const scope = config.oauthScope;
 
   router.get('/client-metadata.json', (_req, res) => {
     res.json({

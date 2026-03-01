@@ -123,7 +123,7 @@ let oauthClient: NodeOAuthClient | null = null;
  */
 export function createOAuthClient(config: ServiceConfig): NodeOAuthClient {
   const isHttps = config.serviceUrl.startsWith('https://');
-  const scope = `atproto repo:${config.allowedCollections}?action=create blob:*/*`;
+  const scope = config.oauthScope;
 
   // RFC 8252: loopback client pattern for HTTP (dev), discoverable for HTTPS (prod)
   let clientMetadata: OAuthClientOptions['clientMetadata'];

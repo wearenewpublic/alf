@@ -12,6 +12,9 @@ const {
   getReadyDrafts,
   upsertUserAuthorization,
   storeDraftBlob,
+  createSchedule,
+  getRawSchedule,
+  updateScheduleNextDraft,
 } = storage;
 import { setOAuthClient } from '../oauth';
 import { publishDraft, startScheduler, stopScheduler, notifyScheduler } from '../scheduler';
@@ -635,6 +638,440 @@ describe('scheduler', () => {
     });
   });
 
+  // ---- Schedule chaining tests ----
+
+  describe('schedule chaining (handleScheduleChaining)', () => {
+    const DAILY_RULE = {
+      rule: { type: 'daily', time: { type: 'wall_time', hour: 9, minute: 0, timezone: 'UTC' } },
+    };
+
+    beforeEach(async () => {
+      await upsertUserAuthorization({
+        userDid: 'did:plc:alice',
+        pdsUrl: 'https://pds.example.com',
+        refreshToken: 'encrypted-token',
+        dpopPrivateKey: 'encrypted-key',
+        tokenScope: 'atproto',
+      });
+    });
+
+    function mockOAuthAndAgent() {
+      const mockCreateRecord = jest.fn().mockResolvedValue({ data: {} });
+      getOAuthClient.mockReturnValue({
+        restore: jest.fn().mockResolvedValue({
+          sub: 'did:plc:alice',
+          serverMetadata: { issuer: 'https://pds.example.com' },
+        }),
+      });
+      Agent.mockReturnValue({
+        com: { atproto: { repo: { createRecord: mockCreateRecord } } },
+        uploadBlob: jest.fn(),
+      });
+      return mockCreateRecord;
+    }
+
+    it('creates next scheduled draft after publishing a schedule-linked draft', async () => {
+      mockOAuthAndAgent();
+      const scheduleId = 'sched-chain-1';
+      await createSchedule({
+        id: scheduleId,
+        userDid: 'did:plc:alice',
+        collection: 'app.bsky.feed.post',
+        record: { $type: 'app.bsky.feed.post', text: 'recurring' },
+        contentUrl: null,
+        recurrenceRule: DAILY_RULE,
+        timezone: 'UTC',
+      });
+
+      const draftUri = 'at://did:plc:alice/app.bsky.feed.post/chain-draft-1';
+      await createDraft({
+        uri: draftUri,
+        userDid: 'did:plc:alice',
+        collection: 'app.bsky.feed.post',
+        rkey: 'chain-draft-1',
+        record: { $type: 'app.bsky.feed.post', text: 'recurring' },
+        recordCid: 'bafychain1',
+        action: 'create',
+        scheduledAt: Date.now() - 1000,
+        scheduleId,
+      });
+      await updateScheduleNextDraft(scheduleId, draftUri);
+
+      await publishDraft(draftUri, config);
+
+      // Verify fire count incremented
+      const schedule = await getRawSchedule(scheduleId);
+      expect(schedule?.fire_count).toBe(1);
+      expect(schedule?.last_fired_at).toBeDefined();
+
+      // Verify a new next draft was created
+      expect(schedule?.next_draft_uri).not.toBe(draftUri);
+      expect(schedule?.next_draft_uri).toBeDefined();
+
+      // Verify the new draft exists and is scheduled
+      const nextDraft = await getDraft(schedule!.next_draft_uri!);
+      expect(nextDraft?.status).toBe('scheduled');
+      expect(nextDraft?.scheduleId).toBe(scheduleId);
+    });
+
+    it('does not chain when schedule status is not active (paused)', async () => {
+      mockOAuthAndAgent();
+      const scheduleId = 'sched-chain-paused';
+      await createSchedule({
+        id: scheduleId,
+        userDid: 'did:plc:alice',
+        collection: 'app.bsky.feed.post',
+        record: { $type: 'app.bsky.feed.post', text: 'paused' },
+        contentUrl: null,
+        recurrenceRule: DAILY_RULE,
+        timezone: 'UTC',
+      });
+
+      // Manually pause the schedule
+      await db
+        .updateTable('schedules')
+        .set({ status: 'paused' })
+        .where('id', '=', scheduleId)
+        .execute();
+
+      const draftUri = 'at://did:plc:alice/app.bsky.feed.post/chain-paused-draft';
+      await createDraft({
+        uri: draftUri,
+        userDid: 'did:plc:alice',
+        collection: 'app.bsky.feed.post',
+        rkey: 'chain-paused-draft',
+        record: { $type: 'app.bsky.feed.post', text: 'paused' },
+        recordCid: 'bafychainpaused',
+        action: 'create',
+        scheduledAt: Date.now() - 1000,
+        scheduleId,
+      });
+
+      await publishDraft(draftUri, config);
+
+      const draft = await getDraft(draftUri);
+      expect(draft?.status).toBe('published');
+
+      const schedule = await getRawSchedule(scheduleId);
+      // Fire count should NOT be incremented (schedule was paused)
+      expect(schedule?.fire_count).toBe(0);
+    });
+
+    it('marks schedule cancelled when series is exhausted (no next occurrence)', async () => {
+      mockOAuthAndAgent();
+      const scheduleId = 'sched-chain-exhausted';
+      // Use endDate in the past so computeNextOccurrence returns null
+      const exhaustedRule = {
+        rule: { type: 'daily', time: { type: 'wall_time', hour: 9, minute: 0, timezone: 'UTC' } },
+        endDate: '2020-01-01',
+      };
+      await createSchedule({
+        id: scheduleId,
+        userDid: 'did:plc:alice',
+        collection: 'app.bsky.feed.post',
+        record: { $type: 'app.bsky.feed.post', text: 'exhausted' },
+        contentUrl: null,
+        recurrenceRule: exhaustedRule,
+        timezone: 'UTC',
+      });
+
+      const draftUri = 'at://did:plc:alice/app.bsky.feed.post/chain-exhausted-draft';
+      await createDraft({
+        uri: draftUri,
+        userDid: 'did:plc:alice',
+        collection: 'app.bsky.feed.post',
+        rkey: 'chain-exhausted-draft',
+        record: { $type: 'app.bsky.feed.post', text: 'exhausted' },
+        recordCid: 'bafychainexhausted',
+        action: 'create',
+        scheduledAt: Date.now() - 1000,
+        scheduleId,
+      });
+
+      await publishDraft(draftUri, config);
+
+      const schedule = await getRawSchedule(scheduleId);
+      expect(schedule?.status).toBe('cancelled');
+      expect(schedule?.next_draft_uri).toBeNull();
+    });
+
+    it('marks schedule as error when recurrence rule JSON is invalid', async () => {
+      mockOAuthAndAgent();
+      const scheduleId = 'sched-chain-badrule';
+      await createSchedule({
+        id: scheduleId,
+        userDid: 'did:plc:alice',
+        collection: 'app.bsky.feed.post',
+        record: { $type: 'app.bsky.feed.post', text: 'bad rule' },
+        contentUrl: null,
+        recurrenceRule: DAILY_RULE,
+        timezone: 'UTC',
+      });
+
+      // Corrupt the recurrence rule JSON directly in the DB
+      await db
+        .updateTable('schedules')
+        .set({ recurrence_rule: 'not-valid-json{{{' })
+        .where('id', '=', scheduleId)
+        .execute();
+
+      const draftUri = 'at://did:plc:alice/app.bsky.feed.post/chain-badrule-draft';
+      await createDraft({
+        uri: draftUri,
+        userDid: 'did:plc:alice',
+        collection: 'app.bsky.feed.post',
+        rkey: 'chain-badrule-draft',
+        record: { $type: 'app.bsky.feed.post', text: 'bad rule' },
+        recordCid: 'bafychainbadrule',
+        action: 'create',
+        scheduledAt: Date.now() - 1000,
+        scheduleId,
+      });
+
+      await publishDraft(draftUri, config);
+
+      const schedule = await getRawSchedule(scheduleId);
+      expect(schedule?.status).toBe('error');
+    });
+
+    it('fetches content_url at publish time for dynamic schedules', async () => {
+      const scheduleId = 'sched-dynamic-1';
+      await createSchedule({
+        id: scheduleId,
+        userDid: 'did:plc:alice',
+        collection: 'app.bsky.feed.post',
+        record: null,
+        contentUrl: 'https://example.com/dynamic-content',
+        recurrenceRule: DAILY_RULE,
+        timezone: 'UTC',
+      });
+
+      const dynamicRecord = { $type: 'app.bsky.feed.post', text: 'dynamic content from url' };
+      const mockCreateRecord = jest.fn().mockResolvedValue({ data: {} });
+      getOAuthClient.mockReturnValue({
+        restore: jest.fn().mockResolvedValue({
+          sub: 'did:plc:alice',
+          serverMetadata: { issuer: 'https://pds.example.com' },
+        }),
+      });
+      Agent.mockReturnValue({
+        com: { atproto: { repo: { createRecord: mockCreateRecord } } },
+        uploadBlob: jest.fn(),
+      });
+
+      // Mock fetch to return dynamic record content
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: jest.fn().mockResolvedValue(dynamicRecord),
+      });
+
+      const draftUri = 'at://did:plc:alice/app.bsky.feed.post/dynamic-draft-1';
+      await createDraft({
+        uri: draftUri,
+        userDid: 'did:plc:alice',
+        collection: 'app.bsky.feed.post',
+        rkey: 'dynamic-draft-1',
+        record: null, // null record → dynamic schedule
+        recordCid: null,
+        action: 'create',
+        scheduledAt: Date.now() - 1000,
+        scheduleId,
+      });
+
+      await publishDraft(draftUri, config);
+
+      expect(global.fetch).toHaveBeenCalled();
+      const fetchedUrl = (global.fetch as jest.Mock).mock.calls[0][0] as string;
+      expect(fetchedUrl).toContain('https://example.com/dynamic-content');
+      expect(fetchedUrl).toContain('fireCount=1');
+      expect(fetchedUrl).toContain('scheduledAt=');
+
+      // Draft should be published with the fetched content
+      const draft = await getDraft(draftUri);
+      expect(draft?.status).toBe('published');
+
+      // The createRecord should have been called with the fetched record
+      expect(mockCreateRecord).toHaveBeenCalledWith(
+        expect.objectContaining({
+          record: expect.objectContaining({ text: 'dynamic content from url' }),
+        }),
+      );
+    });
+
+    it('marks draft and schedule as error when content_url fetch fails', async () => {
+      const scheduleId = 'sched-dynamic-fail';
+      await createSchedule({
+        id: scheduleId,
+        userDid: 'did:plc:alice',
+        collection: 'app.bsky.feed.post',
+        record: null,
+        contentUrl: 'https://example.com/failing-content',
+        recurrenceRule: DAILY_RULE,
+        timezone: 'UTC',
+      });
+
+      getOAuthClient.mockReturnValue({
+        restore: jest.fn().mockResolvedValue({
+          sub: 'did:plc:alice',
+          serverMetadata: { issuer: 'https://pds.example.com' },
+        }),
+      });
+      Agent.mockReturnValue({
+        com: { atproto: { repo: { createRecord: jest.fn() } } },
+        uploadBlob: jest.fn(),
+      });
+
+      // Mock fetch to simulate HTTP error
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+      });
+
+      const draftUri = 'at://did:plc:alice/app.bsky.feed.post/dynamic-fail-draft';
+      await createDraft({
+        uri: draftUri,
+        userDid: 'did:plc:alice',
+        collection: 'app.bsky.feed.post',
+        rkey: 'dynamic-fail-draft',
+        record: null,
+        recordCid: null,
+        action: 'create',
+        scheduledAt: Date.now() - 1000,
+        scheduleId,
+      });
+
+      await publishDraft(draftUri, config);
+
+      const draft = await getDraft(draftUri);
+      expect(draft?.status).toBe('failed');
+      expect(draft?.failureReason).toContain('content_url_fetch_failed');
+
+      const schedule = await getRawSchedule(scheduleId);
+      expect(schedule?.status).toBe('error');
+    });
+
+    it('marks draft failed when dynamic schedule has no content_url', async () => {
+      const scheduleId = 'sched-dynamic-nocontent';
+      await createSchedule({
+        id: scheduleId,
+        userDid: 'did:plc:alice',
+        collection: 'app.bsky.feed.post',
+        record: null,
+        contentUrl: null,  // no content URL set
+        recurrenceRule: DAILY_RULE,
+        timezone: 'UTC',
+      });
+
+      getOAuthClient.mockReturnValue({
+        restore: jest.fn().mockResolvedValue({
+          sub: 'did:plc:alice',
+          serverMetadata: { issuer: 'https://pds.example.com' },
+        }),
+      });
+      Agent.mockReturnValue({
+        com: { atproto: { repo: { createRecord: jest.fn() } } },
+      });
+
+      const draftUri = 'at://did:plc:alice/app.bsky.feed.post/dynamic-nocontent-draft';
+      await createDraft({
+        uri: draftUri,
+        userDid: 'did:plc:alice',
+        collection: 'app.bsky.feed.post',
+        rkey: 'dynamic-nocontent-draft',
+        record: null,  // null record triggers dynamic schedule path
+        recordCid: null,
+        action: 'create',
+        scheduledAt: Date.now() - 1000,
+        scheduleId,
+      });
+
+      await publishDraft(draftUri, config);
+
+      const draft = await getDraft(draftUri);
+      expect(draft?.status).toBe('failed');
+      expect(draft?.failureReason).toBe('dynamic_schedule_missing_content_url');
+    });
+
+    it('marks schedule as error when createDraft throws during next draft creation', async () => {
+      mockOAuthAndAgent();
+      const scheduleId = 'sched-chain-createfail';
+      await createSchedule({
+        id: scheduleId,
+        userDid: 'did:plc:alice',
+        collection: 'app.bsky.feed.post',
+        record: { $type: 'app.bsky.feed.post', text: 'recurring' },
+        contentUrl: null,
+        recurrenceRule: DAILY_RULE,
+        timezone: 'UTC',
+      });
+
+      const draftUri = 'at://did:plc:alice/app.bsky.feed.post/chain-createfail-1';
+      await createDraft({
+        uri: draftUri,
+        userDid: 'did:plc:alice',
+        collection: 'app.bsky.feed.post',
+        rkey: 'chain-createfail-1',
+        record: { $type: 'app.bsky.feed.post', text: 'recurring' },
+        recordCid: 'bafychain-cf',
+        action: 'create',
+        scheduledAt: Date.now() - 1000,
+        scheduleId,
+      });
+      await updateScheduleNextDraft(scheduleId, draftUri);
+
+      // Make createDraft fail on the next call (for creating the chained next draft)
+      const spy = jest.spyOn(storage, 'createDraft').mockRejectedValueOnce(new Error('DB constraint'));
+
+      await publishDraft(draftUri, config);
+
+      spy.mockRestore();
+
+      const schedule = await getRawSchedule(scheduleId);
+      expect(schedule?.status).toBe('error');
+    });
+
+    it('catches errors thrown by handleScheduleChaining itself (non-fatal chain error path)', async () => {
+      mockOAuthAndAgent();
+      const scheduleId = 'sched-chain-throw';
+      await createSchedule({
+        id: scheduleId,
+        userDid: 'did:plc:alice',
+        collection: 'app.bsky.feed.post',
+        record: { $type: 'app.bsky.feed.post', text: 'recurring' },
+        contentUrl: null,
+        recurrenceRule: DAILY_RULE,
+        timezone: 'UTC',
+      });
+
+      const draftUri = 'at://did:plc:alice/app.bsky.feed.post/chain-throw-1';
+      await createDraft({
+        uri: draftUri,
+        userDid: 'did:plc:alice',
+        collection: 'app.bsky.feed.post',
+        rkey: 'chain-throw-1',
+        record: { $type: 'app.bsky.feed.post', text: 'recurring' },
+        recordCid: 'bafychain-throw',
+        action: 'create',
+        scheduledAt: Date.now() - 1000,
+        scheduleId,
+      });
+      await updateScheduleNextDraft(scheduleId, draftUri);
+
+      // Make incrementScheduleFireCount throw — handleScheduleChaining has no try/catch around it,
+      // so this propagates to the outer catch in publishDraft (line 302)
+      const spy = jest.spyOn(storage, 'incrementScheduleFireCount').mockRejectedValueOnce(new Error('Unexpected DB error'));
+
+      // publishDraft should NOT throw — the error is caught and logged non-fatally
+      await expect(publishDraft(draftUri, config)).resolves.toBeUndefined();
+
+      spy.mockRestore();
+
+      // The draft itself should still be published (chaining error is non-fatal)
+      const draft = await getDraft(draftUri);
+      expect(draft?.status).toBe('published');
+    });
+  });
+
   describe('poll error handling', () => {
     it('should not throw when getReadyDrafts fails during a poll', async () => {
       // Seed auth so scheduleNextWakeup has a past-due draft to schedule against
@@ -767,6 +1204,14 @@ describe('scheduler', () => {
 
       setTimeoutSpy.mockRestore();
       clearTimeoutSpy.mockRestore();
+    });
+
+    it('handles superseded wakeup generation gracefully with no scheduled drafts (notifyScheduler noop)', async () => {
+      // When stopScheduler is called, scheduleNextWakeup returns early
+      // This test just verifies notifyScheduler doesn't throw when scheduler is stopped
+      stopScheduler();
+      notifyScheduler();
+      // No assertions needed — just verifying no throws
     });
 
     it('handles superseded wakeup generation gracefully', async () => {

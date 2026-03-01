@@ -118,7 +118,22 @@ export async function initializeSchema(db: Kysely<Database>, config: ServiceConf
     .addColumn('updated_at', bigintType as 'integer', (col) => col.notNull())
     .addColumn('published_at', bigintType as 'integer')
     .addColumn('failure_reason', 'text')
+    .addColumn('trigger_key_hash', 'text')
+    .addColumn('trigger_key_encrypted', 'text')
+    .addColumn('schedule_id', 'text')
     .execute();
+
+  // Migrations: add trigger and schedule columns to existing drafts table
+  for (const col of ['trigger_key_hash', 'trigger_key_encrypted', 'schedule_id']) {
+    try {
+      await db.schema
+        .alterTable('drafts')
+        .addColumn(col, 'text')
+        .execute();
+    } catch {
+      // Column already exists — no-op
+    }
+  }
 
   await db.schema
     .createIndex('idx_drafts_scheduled_at_status')
@@ -132,6 +147,15 @@ export async function initializeSchema(db: Kysely<Database>, config: ServiceConf
     .ifNotExists()
     .on('drafts')
     .columns(['user_did', 'status'])
+    .execute();
+
+  // Index for O(1) trigger key lookup
+  await db.schema
+    .createIndex('idx_drafts_trigger_key_hash')
+    .ifNotExists()
+    .unique()
+    .on('drafts')
+    .column('trigger_key_hash')
     .execute();
 
   // draft_blobs table
@@ -157,6 +181,32 @@ export async function initializeSchema(db: Kysely<Database>, config: ServiceConf
     .unique()
     .on('draft_blobs')
     .columns(['user_did', 'cid'])
+    .execute();
+
+  // schedules table
+  await db.schema
+    .createTable('schedules')
+    .ifNotExists()
+    .addColumn('id', 'text', (col) => col.primaryKey())
+    .addColumn('user_did', 'text', (col) => col.notNull())
+    .addColumn('collection', 'text', (col) => col.notNull())
+    .addColumn('record', 'text')
+    .addColumn('content_url', 'text')
+    .addColumn('recurrence_rule', 'text', (col) => col.notNull())
+    .addColumn('timezone', 'text', (col) => col.notNull())
+    .addColumn('status', 'text', (col) => col.notNull().defaultTo('active'))
+    .addColumn('fire_count', intType as 'integer', (col) => col.notNull().defaultTo(0))
+    .addColumn('created_at', bigintType as 'integer', (col) => col.notNull())
+    .addColumn('updated_at', bigintType as 'integer', (col) => col.notNull())
+    .addColumn('last_fired_at', bigintType as 'integer')
+    .addColumn('next_draft_uri', 'text')
+    .execute();
+
+  await db.schema
+    .createIndex('idx_schedules_user_did_status')
+    .ifNotExists()
+    .on('schedules')
+    .columns(['user_did', 'status'])
     .execute();
 
   logger.info(`${config.databaseType} database schema initialized`);

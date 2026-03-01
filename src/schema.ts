@@ -4,6 +4,7 @@ import { Generated, Selectable } from 'kysely';
 
 export type DraftStatus = 'draft' | 'scheduled' | 'publishing' | 'published' | 'failed' | 'cancelled';
 export type DraftAction = 'create' | 'put' | 'delete';
+export type ScheduleStatus = 'active' | 'paused' | 'cancelled' | 'completed' | 'error';
 
 /**
  * User authorizations table - stores OAuth delegation or session tokens per user
@@ -47,6 +48,28 @@ export interface DraftsTable {
   updated_at: number;
   published_at: number | null;
   failure_reason: string | null;
+  trigger_key_hash: string | null;      // HMAC-SHA256 of plaintext key for O(1) lookup
+  trigger_key_encrypted: string | null; // AES-256-GCM encrypted plaintext key for retrieval
+  schedule_id: string | null;           // FK → schedules(id), null if not part of a schedule
+}
+
+/**
+ * Schedules table - stores recurrence rules for recurring posts
+ */
+export interface SchedulesTable {
+  id: string;                  // UUID (PRIMARY KEY)
+  user_did: string;
+  collection: string;          // NSID (e.g. app.bsky.feed.post)
+  record: string | null;       // Static JSON record, null if content_url used
+  content_url: string | null;  // Dynamic content URL, null if record used
+  recurrence_rule: string;     // Full JSON (RecurrenceRule schema)
+  timezone: string;            // IANA timezone (extracted from rule for indexing)
+  status: ScheduleStatus;
+  fire_count: number;
+  created_at: number;
+  updated_at: number;
+  last_fired_at: number | null;
+  next_draft_uri: string | null; // AT-URI of pending draft instance
 }
 
 /**
@@ -70,12 +93,14 @@ export interface Database {
   oauth_states: OAuthStatesTable;
   drafts: DraftsTable;
   draft_blobs: DraftBlobsTable;
+  schedules: SchedulesTable;
 }
 
 export type DraftRow = Selectable<DraftsTable>;
 export type UserAuthorizationRow = Selectable<UserAuthorizationsTable>;
 export type OAuthStateRow = Selectable<OAuthStatesTable>;
 export type DraftBlobRow = Selectable<DraftBlobsTable>;
+export type ScheduleRow = Selectable<SchedulesTable>;
 
 /**
  * Public draft view (returned to clients)
@@ -90,6 +115,26 @@ export interface DraftView {
   scheduledAt?: string;
   createdAt: string;
   failureReason?: string;
+  record?: Record<string, unknown>;
+  triggerUrl?: string;   // Only present for webhook-triggered drafts (populated by server)
+  scheduleId?: string;   // Only present for schedule-linked drafts
+}
+
+/**
+ * Public schedule view (returned to clients)
+ */
+export interface ScheduleView {
+  id: string;
+  collection: string;
+  status: ScheduleStatus;
+  recurrenceRule: Record<string, unknown>;
+  timezone: string;
+  fireCount: number;
+  createdAt: string;
+  updatedAt: string;
+  lastFiredAt?: string;
+  nextDraftUri?: string;
+  contentUrl?: string;
   record?: Record<string, unknown>;
 }
 
@@ -109,6 +154,27 @@ export function rowToDraftView(row: DraftRow): DraftView {
       : undefined,
     createdAt: new Date(Number(row.created_at)).toISOString(),
     failureReason: row.failure_reason || undefined,
+    record: row.record ? (JSON.parse(row.record) as Record<string, unknown>) : undefined,
+    scheduleId: row.schedule_id || undefined,
+  };
+}
+
+/**
+ * Convert a ScheduleRow to a ScheduleView
+ */
+export function rowToScheduleView(row: ScheduleRow): ScheduleView {
+  return {
+    id: row.id,
+    collection: row.collection,
+    status: row.status,
+    recurrenceRule: JSON.parse(row.recurrence_rule) as Record<string, unknown>,
+    timezone: row.timezone,
+    fireCount: Number(row.fire_count),
+    createdAt: new Date(Number(row.created_at)).toISOString(),
+    updatedAt: new Date(Number(row.updated_at)).toISOString(),
+    lastFiredAt: row.last_fired_at ? new Date(Number(row.last_fired_at)).toISOString() : undefined,
+    nextDraftUri: row.next_draft_uri || undefined,
+    contentUrl: row.content_url || undefined,
     record: row.record ? (JSON.parse(row.record) as Record<string, unknown>) : undefined,
   };
 }

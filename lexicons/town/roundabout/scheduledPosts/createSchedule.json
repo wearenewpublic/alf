@@ -1,0 +1,53 @@
+{
+  "lexicon": 1,
+  "id": "town.roundabout.scheduledPosts.createSchedule",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Create a recurring schedule that automatically creates and publishes drafts",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["collection", "recurrenceRule", "timezone"],
+          "properties": {
+            "collection": {
+              "type": "string",
+              "format": "nsid",
+              "description": "The NSID of the record collection"
+            },
+            "recurrenceRule": {
+              "type": "unknown",
+              "description": "The recurrence rule JSON object"
+            },
+            "timezone": {
+              "type": "string",
+              "description": "IANA timezone for the schedule (extracted from rule for convenience)"
+            },
+            "record": {
+              "type": "unknown",
+              "description": "Static record content (mutually exclusive with contentUrl)"
+            },
+            "contentUrl": {
+              "type": "string",
+              "description": "URL to fetch at publish time for dynamic record content (mutually exclusive with record)"
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["schedule"],
+          "properties": {
+            "schedule": {
+              "type": "ref",
+              "ref": "town.roundabout.scheduledPosts.defs#scheduleView"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "@newpublic/recurrence",
+  "version": "0.1.0",
+  "description": "Recurrence rule engine for ALF scheduled posts",
+  "license": "Apache-2.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest --config jest.config.js"
+  },
+  "dependencies": {
+    "luxon": "^3.5.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.14",
+    "@types/luxon": "^3.4.2",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.4.6",
+    "typescript": "^5.6.0"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "lexicon": 1,
+  "id": "town.roundabout.scheduledPosts.deleteSchedule",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Cancel and delete a recurring schedule and its pending draft",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["id"],
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The UUID of the schedule to delete"
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    }
+  }
+}

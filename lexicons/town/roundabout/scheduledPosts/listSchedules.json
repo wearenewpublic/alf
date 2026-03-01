@@ -1,0 +1,53 @@
+{
+  "lexicon": 1,
+  "id": "town.roundabout.scheduledPosts.listSchedules",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "List recurring schedules for a user",
+      "parameters": {
+        "type": "params",
+        "required": ["repo"],
+        "properties": {
+          "repo": {
+            "type": "string",
+            "format": "did",
+            "description": "The DID of the user"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by status (active, paused, cancelled, error)"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50,
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["schedules"],
+          "properties": {
+            "schedules": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "town.roundabout.scheduledPosts.defs#scheduleView"
+              }
+            },
+            "cursor": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

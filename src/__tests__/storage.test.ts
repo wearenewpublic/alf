@@ -7,6 +7,8 @@ import {
   setDb,
   createDraft,
   getDraft,
+  getDraftRawRow,
+  getDraftByTriggerKeyHash,
   listDrafts,
   scheduleDraft,
   updateDraft,
@@ -27,6 +29,15 @@ import {
   getBlobsByCids,
   deleteBlobs,
   cleanExpiredOAuthStates,
+  createSchedule,
+  getSchedule,
+  getRawSchedule,
+  listSchedules,
+  updateScheduleNextDraft,
+  updateScheduleStatus,
+  incrementScheduleFireCount,
+  updateSchedule,
+  deleteSchedule,
 } from '../storage';
 import type { Database } from '../schema';
 
@@ -109,6 +120,28 @@ describe('storage', () => {
 
       expect(draft.action).toBe('delete');
       expect(draft.cid).toBeUndefined();
+    });
+  });
+
+  describe('getDraftRawRow', () => {
+    it('returns null for non-existent uri', async () => {
+      const result = await getDraftRawRow('at://did:plc:nobody/app/nonexistent');
+      expect(result).toBeNull();
+    });
+
+    it('returns the raw row for an existing draft', async () => {
+      await createDraft({
+        uri: 'at://did:plc:alice/app.bsky.feed.post/rawrow1',
+        userDid: 'did:plc:alice',
+        collection: 'app.bsky.feed.post',
+        rkey: 'rawrow1',
+        record: { text: 'raw' },
+        recordCid: 'bafyraw1',
+        action: 'create',
+      });
+      const result = await getDraftRawRow('at://did:plc:alice/app.bsky.feed.post/rawrow1');
+      expect(result).not.toBeNull();
+      expect(result?.uri).toBe('at://did:plc:alice/app.bsky.feed.post/rawrow1');
     });
   });
 
@@ -729,6 +762,290 @@ describe('storage', () => {
 
       expect(await getOAuthState('expired-clean')).toBeNull();
       expect(await getOAuthState('valid-clean')).toEqual({ x: 2 });
+    });
+  });
+
+  // ---- getDraftByTriggerKeyHash ----
+
+  describe('getDraftByTriggerKeyHash', () => {
+    it('returns the draft row when trigger key hash matches', async () => {
+      await createDraft({
+        uri: 'at://did:plc:alice/app.bsky.feed.post/trig1',
+        userDid: 'did:plc:alice',
+        collection: 'app.bsky.feed.post',
+        rkey: 'trig1',
+        record: { text: 'trigger post' },
+        recordCid: 'bafytrig1',
+        action: 'create',
+        triggerKeyHash: 'testhash123',
+        triggerKeyEncrypted: 'encryptedkey123',
+      });
+
+      const row = await getDraftByTriggerKeyHash('testhash123');
+      expect(row).not.toBeNull();
+      expect(row?.trigger_key_hash).toBe('testhash123');
+      expect(row?.trigger_key_encrypted).toBe('encryptedkey123');
+    });
+
+    it('returns null when hash is not found', async () => {
+      const row = await getDraftByTriggerKeyHash('nonexistent-hash');
+      expect(row).toBeNull();
+    });
+  });
+
+  // ---- Schedule Operations ----
+
+  const DAILY_RULE = {
+    rule: { type: 'daily', time: { type: 'wall_time', hour: 9, minute: 0, timezone: 'UTC' } },
+  };
+
+  async function createTestSchedule(id: string, overrides?: Partial<{
+    record: Record<string, unknown> | null;
+    contentUrl: string | null;
+  }>) {
+    return createSchedule({
+      id,
+      userDid: 'did:plc:alice',
+      collection: 'app.bsky.feed.post',
+      record: overrides?.record !== undefined ? overrides.record : { $type: 'app.bsky.feed.post', text: 'test' },
+      contentUrl: overrides?.contentUrl ?? null,
+      recurrenceRule: DAILY_RULE,
+      timezone: 'UTC',
+    });
+  }
+
+  describe('createSchedule', () => {
+    it('creates a schedule with active status and zero fire count', async () => {
+      const row = await createTestSchedule('sched-create-1');
+      expect(row.id).toBe('sched-create-1');
+      expect(row.status).toBe('active');
+      expect(row.fire_count).toBe(0);
+      expect(row.collection).toBe('app.bsky.feed.post');
+      expect(row.timezone).toBe('UTC');
+      expect(row.last_fired_at).toBeNull();
+      expect(row.next_draft_uri).toBeNull();
+    });
+
+    it('stores recurrence rule as JSON string', async () => {
+      const row = await createTestSchedule('sched-create-2');
+      expect(JSON.parse(row.recurrence_rule)).toEqual(DAILY_RULE);
+    });
+
+    it('stores null record when contentUrl is provided', async () => {
+      const row = await createTestSchedule('sched-create-3', {
+        record: null,
+        contentUrl: 'https://example.com/content',
+      });
+      expect(row.record).toBeNull();
+      expect(row.content_url).toBe('https://example.com/content');
+    });
+  });
+
+  describe('getSchedule', () => {
+    it('returns scheduleView for an existing schedule', async () => {
+      await createTestSchedule('sched-get-1');
+      const view = await getSchedule('sched-get-1');
+      expect(view).not.toBeNull();
+      expect(view?.id).toBe('sched-get-1');
+      expect(view?.status).toBe('active');
+      expect(view?.fireCount).toBe(0);
+      expect(view?.recurrenceRule).toEqual(DAILY_RULE);
+    });
+
+    it('returns null for non-existent schedule', async () => {
+      expect(await getSchedule('nonexistent-sched')).toBeNull();
+    });
+  });
+
+  describe('getRawSchedule', () => {
+    it('returns raw row for an existing schedule', async () => {
+      await createTestSchedule('sched-raw-1');
+      const row = await getRawSchedule('sched-raw-1');
+      expect(row).not.toBeNull();
+      expect(row?.id).toBe('sched-raw-1');
+      expect(row?.user_did).toBe('did:plc:alice');
+    });
+
+    it('returns null for non-existent schedule', async () => {
+      expect(await getRawSchedule('nonexistent-sched')).toBeNull();
+    });
+  });
+
+  describe('listSchedules', () => {
+    beforeEach(async () => {
+      await createTestSchedule('sched-list-1');
+      await createTestSchedule('sched-list-2');
+      await createTestSchedule('sched-list-3');
+    });
+
+    it('returns all schedules for the user', async () => {
+      const result = await listSchedules({ userDid: 'did:plc:alice', limit: 50 });
+      expect(result.schedules.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it('filters by status', async () => {
+      await updateScheduleStatus('sched-list-1', 'paused');
+      const active = await listSchedules({ userDid: 'did:plc:alice', status: 'active', limit: 50 });
+      const paused = await listSchedules({ userDid: 'did:plc:alice', status: 'paused', limit: 50 });
+      expect(active.schedules.every(s => s.status === 'active')).toBe(true);
+      expect(paused.schedules.every(s => s.status === 'paused')).toBe(true);
+    });
+
+    it('paginates with cursor', async () => {
+      // Ensure distinct created_at values so cursor (created_at < N) works correctly
+      const base = Date.now();
+      const ids = ['sched-list-1', 'sched-list-2', 'sched-list-3'];
+      for (let i = 0; i < ids.length; i++) {
+        await db.updateTable('schedules').set({ created_at: base - (2 - i) * 1000 }).where('id', '=', ids[i]).execute();
+      }
+
+      const page1 = await listSchedules({ userDid: 'did:plc:alice', limit: 2 });
+      expect(page1.schedules).toHaveLength(2);
+      expect(page1.cursor).toBeDefined();
+
+      const page2 = await listSchedules({ userDid: 'did:plc:alice', limit: 2, cursor: page1.cursor });
+      expect(page2.schedules.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('returns empty list for unknown user', async () => {
+      const result = await listSchedules({ userDid: 'did:plc:nobody', limit: 50 });
+      expect(result.schedules).toHaveLength(0);
+    });
+  });
+
+  describe('updateScheduleNextDraft', () => {
+    it('sets next_draft_uri', async () => {
+      await createTestSchedule('sched-nd-1');
+      await updateScheduleNextDraft('sched-nd-1', 'at://did:plc:alice/app.bsky.feed.post/next1');
+      const view = await getSchedule('sched-nd-1');
+      expect(view?.nextDraftUri).toBe('at://did:plc:alice/app.bsky.feed.post/next1');
+    });
+
+    it('can clear next_draft_uri to null', async () => {
+      await createTestSchedule('sched-nd-2');
+      await updateScheduleNextDraft('sched-nd-2', 'at://did:plc:alice/app.bsky.feed.post/x');
+      await updateScheduleNextDraft('sched-nd-2', null);
+      const view = await getSchedule('sched-nd-2');
+      expect(view?.nextDraftUri).toBeUndefined();
+    });
+  });
+
+  describe('updateScheduleStatus', () => {
+    it('updates schedule status', async () => {
+      await createTestSchedule('sched-status-1');
+      await updateScheduleStatus('sched-status-1', 'paused');
+      const view = await getSchedule('sched-status-1');
+      expect(view?.status).toBe('paused');
+    });
+
+    it('can set to error status', async () => {
+      await createTestSchedule('sched-status-2');
+      await updateScheduleStatus('sched-status-2', 'error');
+      const view = await getSchedule('sched-status-2');
+      expect(view?.status).toBe('error');
+    });
+  });
+
+  describe('incrementScheduleFireCount', () => {
+    it('increments fire_count and sets last_fired_at', async () => {
+      await createTestSchedule('sched-fc-1');
+      await incrementScheduleFireCount('sched-fc-1');
+      const view = await getSchedule('sched-fc-1');
+      expect(view?.fireCount).toBe(1);
+      expect(view?.lastFiredAt).toBeDefined();
+    });
+
+    it('increments fire_count multiple times', async () => {
+      await createTestSchedule('sched-fc-2');
+      await incrementScheduleFireCount('sched-fc-2');
+      await incrementScheduleFireCount('sched-fc-2');
+      const view = await getSchedule('sched-fc-2');
+      expect(view?.fireCount).toBe(2);
+    });
+  });
+
+  describe('updateSchedule', () => {
+    it('updates record content', async () => {
+      await createTestSchedule('sched-upd-1');
+      const result = await updateSchedule('sched-upd-1', {
+        record: { $type: 'app.bsky.feed.post', text: 'updated text' },
+      });
+      expect(result?.record).toEqual({ $type: 'app.bsky.feed.post', text: 'updated text' });
+    });
+
+    it('clears record when set to null', async () => {
+      await createTestSchedule('sched-upd-2');
+      const result = await updateSchedule('sched-upd-2', { record: null });
+      expect(result?.record).toBeUndefined();
+    });
+
+    it('updates contentUrl', async () => {
+      await createTestSchedule('sched-upd-3');
+      const result = await updateSchedule('sched-upd-3', {
+        contentUrl: 'https://example.com/new-content',
+      });
+      expect(result?.contentUrl).toBe('https://example.com/new-content');
+    });
+
+    it('clears contentUrl when set to null', async () => {
+      await createTestSchedule('sched-upd-4', { record: null, contentUrl: 'https://example.com' });
+      const result = await updateSchedule('sched-upd-4', { contentUrl: null });
+      expect(result?.contentUrl).toBeUndefined();
+    });
+
+    it('updates recurrenceRule', async () => {
+      await createTestSchedule('sched-upd-5');
+      const newRule = { rule: { type: 'weekly', daysOfWeek: [1], time: { type: 'wall_time', hour: 10, minute: 0, timezone: 'UTC' } } };
+      const result = await updateSchedule('sched-upd-5', { recurrenceRule: newRule });
+      expect(result?.recurrenceRule).toEqual(newRule);
+    });
+
+    it('updates timezone', async () => {
+      await createTestSchedule('sched-upd-6');
+      const result = await updateSchedule('sched-upd-6', { timezone: 'America/New_York' });
+      expect(result?.timezone).toBe('America/New_York');
+    });
+
+    it('updates status', async () => {
+      await createTestSchedule('sched-upd-7');
+      const result = await updateSchedule('sched-upd-7', { status: 'paused' });
+      expect(result?.status).toBe('paused');
+    });
+  });
+
+  describe('deleteSchedule', () => {
+    it('cancels pending draft and marks schedule cancelled', async () => {
+      await createTestSchedule('sched-del-1');
+
+      // Create a pending draft linked to this schedule
+      await createDraft({
+        uri: 'at://did:plc:alice/app.bsky.feed.post/sched-del-draft',
+        userDid: 'did:plc:alice',
+        collection: 'app.bsky.feed.post',
+        rkey: 'sched-del-draft',
+        record: { text: 'scheduled post' },
+        recordCid: 'bafyscheddel',
+        action: 'create',
+        scheduledAt: Date.now() + 60_000,
+        scheduleId: 'sched-del-1',
+      });
+
+      await deleteSchedule('sched-del-1');
+
+      // Pending draft should be cancelled
+      const draft = await getDraft('at://did:plc:alice/app.bsky.feed.post/sched-del-draft');
+      expect(draft?.status).toBe('cancelled');
+
+      // Schedule status should be cancelled
+      const view = await getSchedule('sched-del-1');
+      expect(view?.status).toBe('cancelled');
+    });
+
+    it('works when there is no pending draft', async () => {
+      await createTestSchedule('sched-del-2');
+      await deleteSchedule('sched-del-2');
+      const view = await getSchedule('sched-del-2');
+      expect(view?.status).toBe('cancelled');
     });
   });
 

@@ -1,6 +1,6 @@
 // ABOUTME: AES-256-GCM encryption utilities for storing sensitive tokens at rest
 
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
@@ -51,4 +51,14 @@ export function decrypt(encryptedStr: string, keyHex: string): string {
 // Validate that a key is a valid 64-char hex string (32 bytes)
 export function validateEncryptionKey(keyHex: string): boolean {
   return /^[0-9a-fA-F]{64}$/.test(keyHex);
+}
+
+/**
+ * Compute HMAC-SHA256(value, key) and return as a hex string.
+ * Used to create a stable lookup index for webhook trigger keys without
+ * exposing the plaintext key in the database.
+ */
+export function hmac(value: string, keyHex: string): string {
+  const key = Buffer.from(keyHex, 'hex');
+  return createHmac('sha256', key).update(value).digest('hex');
 }

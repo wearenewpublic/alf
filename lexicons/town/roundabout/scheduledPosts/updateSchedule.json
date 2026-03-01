@@ -1,0 +1,57 @@
+{
+  "lexicon": 1,
+  "id": "town.roundabout.scheduledPosts.updateSchedule",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Update a recurring schedule (modify rule, content, pause/resume)",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["id"],
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The UUID of the schedule to update"
+            },
+            "recurrenceRule": {
+              "type": "unknown",
+              "description": "New recurrence rule (replaces existing)"
+            },
+            "timezone": {
+              "type": "string",
+              "description": "New IANA timezone"
+            },
+            "record": {
+              "type": "unknown",
+              "description": "New static record content"
+            },
+            "contentUrl": {
+              "type": "string",
+              "description": "New dynamic content URL"
+            },
+            "status": {
+              "type": "string",
+              "knownValues": ["active", "paused"],
+              "description": "Set to 'paused' to pause or 'active' to resume the schedule"
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["schedule"],
+          "properties": {
+            "schedule": {
+              "type": "ref",
+              "ref": "town.roundabout.scheduledPosts.defs#scheduleView"
+            }
+          }
+        }
+      }
+    }
+  }
+}

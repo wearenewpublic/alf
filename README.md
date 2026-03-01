@@ -170,6 +170,61 @@ await fetch('https://alf.example.com/xrpc/com.atproto.repo.createRecord', {
 });
 ```
 
+### Webhook triggers
+
+Add `x-trigger: webhook` to any write call and ALF returns a one-time secret URL. POST to it later to publish the draft — no auth required, the URL is the credential.
+
+```typescript
+const response = await fetch('https://alf.example.com/xrpc/com.atproto.repo.createRecord', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${accessToken}`,
+    'Content-Type': 'application/json',
+    'x-trigger': 'webhook',
+  },
+  body: JSON.stringify({ repo: userDid, collection: 'app.bsky.feed.post', record: post }),
+});
+
+const { uri, triggerUrl } = await response.json();
+// triggerUrl = "https://alf.example.com/triggers/some-one-time-key"
+
+// Later, from anywhere, publish the draft:
+await fetch(triggerUrl, { method: 'POST' });
+```
+
+Calling the trigger URL a second time returns a `409 TriggerAlreadyFired` error.
+
+### Recurring schedules
+
+Create a schedule with a recurrence rule and ALF will automatically queue and publish one draft per occurrence. Static records reuse the same content every time; dynamic schedules fetch a `contentUrl` at publish time.
+
+```typescript
+const response = await fetch('https://alf.example.com/xrpc/town.roundabout.scheduledPosts.createSchedule', {
+  method: 'POST',
+  headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    collection: 'app.bsky.feed.post',
+    timezone: 'America/New_York',
+    recurrenceRule: {
+      rule: {
+        type: 'weekly',
+        daysOfWeek: [1, 3, 5],  // Mon/Wed/Fri
+        time: { type: 'wall_time', hour: 9, minute: 0, timezone: 'America/New_York' },
+      },
+    },
+    record: {
+      $type: 'app.bsky.feed.post',
+      text: 'Good morning!',
+      createdAt: new Date().toISOString(),
+    },
+  }),
+});
+
+const { schedule } = await response.json();
+```
+
+Supported rule types: `once`, `daily`, `weekly`, `monthly_on_day`, `monthly_nth_weekday`, `monthly_last_business_day`, `yearly_on_month_day`, `yearly_nth_weekday`, `quarterly_last_weekday`. All rules support `startDate`, `endDate`, `count`, per-occurrence exceptions (`cancel`, `move`, `override_time`, `override_payload`), and DST-aware wall-clock scheduling via IANA timezone names.
+
 ## API reference
 
 See [docs/api.md](docs/api.md) for the full API reference.

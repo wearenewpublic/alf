@@ -1,8 +1,8 @@
-// ABOUTME: Database operations for ALF (Atproto Latency Fabric) service (drafts CRUD, user authorizations, blob storage)
+// ABOUTME: Database operations for ALF (Atproto Latency Fabric) service (drafts CRUD, user authorizations, blob storage, schedules)
 
 import { Kysely } from 'kysely';
-import type { Database, DraftView, DraftRow, DraftAction, DraftStatus } from './schema.js';
-import { rowToDraftView } from './schema.js';
+import type { Database, DraftView, DraftRow, DraftAction, DraftStatus, ScheduleRow, ScheduleView, ScheduleStatus } from './schema.js';
+import { rowToDraftView, rowToScheduleView } from './schema.js';
 import { createLogger } from './logger.js';
 
 const logger = createLogger('Storage');
@@ -30,10 +30,16 @@ export interface CreateDraftParams {
   recordCid: string | null;
   action: DraftAction;
   scheduledAt?: number;
+  triggerKeyHash?: string;
+  triggerKeyEncrypted?: string;
+  scheduleId?: string;
 }
 
 export async function createDraft(params: CreateDraftParams): Promise<DraftView> {
   const now = Date.now();
+  // Draft status: if it has a trigger key, it waits as 'draft' (no scheduled_at)
+  // If it has a scheduled_at, it's 'scheduled'
+  // Otherwise it's 'draft'
   const status: DraftStatus = params.scheduledAt ? 'scheduled' : 'draft';
 
   // Check if an active draft already exists for this AT-URI
@@ -70,6 +76,9 @@ export async function createDraft(params: CreateDraftParams): Promise<DraftView>
       updated_at: now,
       published_at: null,
       failure_reason: null,
+      trigger_key_hash: params.triggerKeyHash ?? null,
+      trigger_key_encrypted: params.triggerKeyEncrypted ?? null,
+      schedule_id: params.scheduleId ?? null,
     })
     .execute();
 
@@ -89,6 +98,18 @@ export async function getDraft(uri: string): Promise<DraftView | null> {
   return row ? rowToDraftView(row) : null;
 }
 
+/**
+ * Get the raw DraftRow (including encrypted trigger key fields)
+ */
+export async function getDraftRawRow(uri: string): Promise<DraftRow | null> {
+  const row = await getDb()
+    .selectFrom('drafts')
+    .selectAll()
+    .where('uri', '=', uri)
+    .executeTakeFirst();
+  return row ?? null;
+}
+
 async function getDraftRow(uri: string): Promise<DraftRow> {
   const row = await getDb()
     .selectFrom('drafts')
@@ -98,12 +119,25 @@ async function getDraftRow(uri: string): Promise<DraftRow> {
   return row;
 }
 
+/**
+ * Look up a draft by its trigger key HMAC hash.
+ * Returns the raw row (including encrypted key) or null if not found.
+ */
+export async function getDraftByTriggerKeyHash(hash: string): Promise<DraftRow | null> {
+  const row = await getDb()
+    .selectFrom('drafts')
+    .selectAll()
+    .where('trigger_key_hash', '=', hash)
+    .executeTakeFirst();
+  return row ?? null;
+}
+
 export async function listDrafts(params: {
   userDid: string;
   status?: string;
   limit: number;
   cursor?: string;
-}): Promise<{ drafts: DraftView[]; cursor?: string }> {
+}): Promise<{ drafts: Array<DraftView & { triggerKeyEncrypted?: string | null }>; cursor?: string }> {
   let query = getDb()
     .selectFrom('drafts')
     .selectAll()
@@ -145,7 +179,10 @@ export async function listDrafts(params: {
   }
 
   return {
-    drafts: rows.map(rowToDraftView),
+    drafts: rows.map(row => ({
+      ...rowToDraftView(row),
+      triggerKeyEncrypted: row.trigger_key_encrypted,
+    })),
     cursor: nextCursor,
   };
 }
@@ -484,5 +521,190 @@ export async function cleanExpiredOAuthStates(): Promise<void> {
   await getDb()
     .deleteFrom('oauth_states')
     .where('expires_at', '<=', now)
+    .execute();
+}
+
+// ---- Schedule Operations ----
+
+export interface CreateScheduleParams {
+  id: string;
+  userDid: string;
+  collection: string;
+  record: Record<string, unknown> | null;
+  contentUrl: string | null;
+  recurrenceRule: Record<string, unknown>;
+  timezone: string;
+}
+
+export async function createSchedule(params: CreateScheduleParams): Promise<ScheduleRow> {
+  const now = Date.now();
+  await getDb()
+    .insertInto('schedules')
+    .values({
+      id: params.id,
+      user_did: params.userDid,
+      collection: params.collection,
+      record: params.record ? JSON.stringify(params.record) : null,
+      content_url: params.contentUrl,
+      recurrence_rule: JSON.stringify(params.recurrenceRule),
+      timezone: params.timezone,
+      status: 'active',
+      fire_count: 0,
+      created_at: now,
+      updated_at: now,
+      last_fired_at: null,
+      next_draft_uri: null,
+    })
+    .execute();
+
+  return getScheduleRow(params.id);
+}
+
+async function getScheduleRow(id: string): Promise<ScheduleRow> {
+  return getDb()
+    .selectFrom('schedules')
+    .selectAll()
+    .where('id', '=', id)
+    .executeTakeFirstOrThrow();
+}
+
+export async function getSchedule(id: string): Promise<ScheduleView | null> {
+  const row = await getDb()
+    .selectFrom('schedules')
+    .selectAll()
+    .where('id', '=', id)
+    .executeTakeFirst();
+  return row ? rowToScheduleView(row) : null;
+}
+
+export async function getRawSchedule(id: string): Promise<ScheduleRow | null> {
+  const row = await getDb()
+    .selectFrom('schedules')
+    .selectAll()
+    .where('id', '=', id)
+    .executeTakeFirst();
+  return row ?? null;
+}
+
+export async function listSchedules(params: {
+  userDid: string;
+  status?: string;
+  limit: number;
+  cursor?: string;
+}): Promise<{ schedules: ScheduleView[]; cursor?: string }> {
+  let query = getDb()
+    .selectFrom('schedules')
+    .selectAll()
+    .where('user_did', '=', params.userDid)
+    .orderBy('created_at', 'desc');
+
+  if (params.status) {
+    query = query.where('status', '=', params.status as ScheduleStatus);
+  }
+
+  if (params.cursor) {
+    const cursorTime = parseInt(params.cursor, 10);
+    query = query.where('created_at', '<', cursorTime);
+  }
+
+  query = query.limit(params.limit + 1);
+
+  const rows = await query.execute();
+
+  let nextCursor: string | undefined;
+  if (rows.length > params.limit) {
+    rows.pop();
+    const lastRow = rows[rows.length - 1];
+    if (lastRow) {
+      nextCursor = String(lastRow.created_at);
+    }
+  }
+
+  return {
+    schedules: rows.map(rowToScheduleView),
+    cursor: nextCursor,
+  };
+}
+
+export async function updateScheduleNextDraft(id: string, nextDraftUri: string | null): Promise<void> {
+  const now = Date.now();
+  await getDb()
+    .updateTable('schedules')
+    .set({ next_draft_uri: nextDraftUri, updated_at: now })
+    .where('id', '=', id)
+    .execute();
+}
+
+export async function updateScheduleStatus(id: string, status: ScheduleStatus): Promise<void> {
+  const now = Date.now();
+  await getDb()
+    .updateTable('schedules')
+    .set({ status, updated_at: now })
+    .where('id', '=', id)
+    .execute();
+}
+
+export async function incrementScheduleFireCount(id: string): Promise<void> {
+  const now = Date.now();
+  await getDb()
+    .updateTable('schedules')
+    .set((eb) => ({
+      fire_count: eb('fire_count', '+', 1),
+      last_fired_at: now,
+      updated_at: now,
+    }))
+    .where('id', '=', id)
+    .execute();
+}
+
+export async function updateSchedule(id: string, params: {
+  record?: Record<string, unknown> | null;
+  contentUrl?: string | null;
+  recurrenceRule?: Record<string, unknown>;
+  timezone?: string;
+  status?: ScheduleStatus;
+}): Promise<ScheduleView | null> {
+  const now = Date.now();
+  const updates: Record<string, unknown> = { updated_at: now };
+
+  if ('record' in params) {
+    updates.record = params.record ? JSON.stringify(params.record) : null;
+  }
+  if ('contentUrl' in params) {
+    updates.content_url = params.contentUrl ?? null;
+  }
+  if (params.recurrenceRule !== undefined) {
+    updates.recurrence_rule = JSON.stringify(params.recurrenceRule);
+  }
+  if (params.timezone !== undefined) {
+    updates.timezone = params.timezone;
+  }
+  if (params.status !== undefined) {
+    updates.status = params.status;
+  }
+
+  await getDb()
+    .updateTable('schedules')
+    .set(updates)
+    .where('id', '=', id)
+    .execute();
+
+  return getSchedule(id);
+}
+
+export async function deleteSchedule(id: string): Promise<void> {
+  const now = Date.now();
+  // Cancel any pending draft linked to this schedule
+  await getDb()
+    .updateTable('drafts')
+    .set({ status: 'cancelled', updated_at: now })
+    .where('schedule_id', '=', id)
+    .where('status', 'in', ['draft', 'scheduled'])
+    .execute();
+
+  await getDb()
+    .updateTable('schedules')
+    .set({ status: 'cancelled', next_draft_uri: null, updated_at: now })
+    .where('id', '=', id)
     .execute();
 }

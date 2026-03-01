@@ -283,6 +283,70 @@ describe('createSessionStore', () => {
     expect(result.tokenSet.token_type).toBe('DPoP');
   });
 
+  it('get parses ISO string expires_at and converts to Unix ms timestamp', async () => {
+    const { getUserAuthorization } = jest.requireMock('../storage') as {
+      getOAuthState: jest.Mock;
+      saveOAuthState: jest.Mock;
+      deleteOAuthState: jest.Mock;
+      getUserAuthorization: jest.Mock;
+      upsertUserAuthorization: jest.Mock;
+    };
+    const isoExpiry = '2026-06-01T12:00:00.000Z';
+    const expectedMs = new Date(isoExpiry).getTime();
+    const dpopBlob = JSON.stringify({
+      jwk: { kty: 'EC', crv: 'P-256' },
+      aud: 'https://pds.host.example.com',
+      access_token: 'valid-token',
+      expires_at: isoExpiry,
+    });
+    getUserAuthorization.mockResolvedValueOnce({
+      pds_url: 'https://pds.example.com',
+      refresh_token: `enc:mytoken`,
+      dpop_private_key: `enc:${dpopBlob}`,
+      token_scope: 'atproto',
+      auth_type: 'oauth',
+      user_did: 'did:plc:x',
+      created_at: 0,
+      updated_at: 0,
+    });
+    const sessionStore = getSessionStore();
+    const result = await sessionStore.get('did:plc:x') as {
+      tokenSet: { expires_at: number; access_token: string };
+    };
+    expect(result).toBeDefined();
+    expect(result.tokenSet.expires_at).toBe(expectedMs);
+    expect(result.tokenSet.access_token).toBe('valid-token');
+  });
+
+  it('get parses numeric expires_at directly as Unix ms', async () => {
+    const { getUserAuthorization } = jest.requireMock('../storage') as {
+      getUserAuthorization: jest.Mock;
+    };
+    const numericExpiry = 1748779200000; // some future Unix ms
+    const dpopBlob = JSON.stringify({
+      jwk: { kty: 'EC' },
+      aud: 'https://pds.host.example.com',
+      access_token: 'valid-token',
+      expires_at: numericExpiry,
+    });
+    getUserAuthorization.mockResolvedValueOnce({
+      pds_url: 'https://pds.example.com',
+      refresh_token: `enc:mytoken`,
+      dpop_private_key: `enc:${dpopBlob}`,
+      token_scope: 'atproto',
+      auth_type: 'oauth',
+      user_did: 'did:plc:x',
+      created_at: 0,
+      updated_at: 0,
+    });
+    const sessionStore = getSessionStore();
+    const result = await sessionStore.get('did:plc:x') as {
+      tokenSet: { expires_at: number };
+    };
+    expect(result).toBeDefined();
+    expect(result.tokenSet.expires_at).toBe(numericExpiry);
+  });
+
   it('get handles legacy format (bare JWK, no jwk or aud keys)', async () => {
     const { getUserAuthorization } = jest.requireMock('../storage') as {
       getOAuthState: jest.Mock;
@@ -375,7 +439,7 @@ describe('createSessionStore', () => {
     // encrypt mock prefixes with 'enc:'
     expect(callArgs.refreshToken).toBe('enc:mytoken');
     expect(callArgs.dpopPrivateKey).toBe(
-      `enc:${JSON.stringify({ jwk: { kty: 'EC', crv: 'P-256' }, aud: 'https://pds.host.example.com' })}`,
+      `enc:${JSON.stringify({ jwk: { kty: 'EC', crv: 'P-256' }, aud: 'https://pds.host.example.com', access_token: '', expires_at: null })}`,
     );
     expect(callArgs.tokenScope).toBe('atproto');
   });

@@ -63,6 +63,81 @@
           "type": "string",
           "description": "Error message if the draft failed to publish",
           "maxLength": 500
+        },
+        "triggerUrl": {
+          "type": "string",
+          "description": "One-time webhook URL that immediately publishes this draft when called (only present for webhook-triggered drafts)"
+        },
+        "scheduleId": {
+          "type": "string",
+          "description": "ID of the recurring schedule that created this draft, if any"
+        }
+      }
+    },
+    "scheduleView": {
+      "type": "object",
+      "description": "A recurring schedule that creates drafts on a recurrence rule",
+      "required": [
+        "id",
+        "collection",
+        "status",
+        "recurrenceRule",
+        "timezone",
+        "fireCount",
+        "createdAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "UUID identifier for this schedule"
+        },
+        "collection": {
+          "type": "string",
+          "format": "nsid",
+          "description": "The NSID of the record collection"
+        },
+        "status": {
+          "type": "string",
+          "knownValues": ["active", "paused", "cancelled", "error"],
+          "description": "Current status of the schedule"
+        },
+        "recurrenceRule": {
+          "type": "unknown",
+          "description": "The recurrence rule JSON object"
+        },
+        "timezone": {
+          "type": "string",
+          "description": "IANA timezone for the schedule"
+        },
+        "fireCount": {
+          "type": "integer",
+          "description": "Number of times this schedule has fired"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "lastFiredAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "nextDraftUri": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "AT-URI of the pending draft for the next occurrence"
+        },
+        "contentUrl": {
+          "type": "string",
+          "description": "URL fetched at publish time for dynamic content (mutually exclusive with record)"
+        },
+        "record": {
+          "type": "unknown",
+          "description": "Static record content (mutually exclusive with contentUrl)"
         }
       }
     }

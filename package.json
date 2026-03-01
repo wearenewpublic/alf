@@ -19,6 +19,7 @@
     "diagrams": "d2 --layout elk assets/diagram-lifecycle.d2 assets/diagram-lifecycle.svg && d2 --layout elk --scale 2 assets/diagram-flow.d2 assets/diagram-flow.png"
   },
   "dependencies": {
+    "@newpublic/recurrence": "file:packages/recurrence",
     "@atproto/api": "^0.19.0",
     "@atproto/common": "^0.5.13",
     "@atproto/crypto": "^0.4.5",
@@ -27,12 +28,14 @@
     "@atproto/oauth-client-node": "^0.3.17",
     "@atproto/repo": "^0.8.12",
     "@atproto/xrpc-server": "^0.10.14",
+    "@types/luxon": "^3.7.1",
     "better-sqlite3": "^12.5.0",
     "cors": "^2.8.5",
     "dotenv": "^16.0.3",
     "express": "^4.21.2",
     "jose": "^5.9.6",
     "kysely": "^0.27.4",
+    "luxon": "^3.7.2",
     "multiformats": "^9.9.0",
     "pg": "^8.13.1",
     "pino": "^8.21.0",

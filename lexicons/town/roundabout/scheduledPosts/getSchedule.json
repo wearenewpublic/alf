@@ -1,0 +1,33 @@
+{
+  "lexicon": 1,
+  "id": "town.roundabout.scheduledPosts.getSchedule",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Get a single recurring schedule by ID",
+      "parameters": {
+        "type": "params",
+        "required": ["id"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The UUID of the schedule"
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["schedule"],
+          "properties": {
+            "schedule": {
+              "type": "ref",
+              "ref": "town.roundabout.scheduledPosts.defs#scheduleView"
+            }
+          }
+        }
+      }
+    }
+  }
+}

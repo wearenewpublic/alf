@@ -5,6 +5,7 @@ import cors from 'cors';
 import pinoHttp from 'pino-http';
 import { readFileSync } from 'fs';
 import path from 'path';
+import { randomUUID } from 'node:crypto';
 import { CID } from 'multiformats/cid';
 import { sha256 } from 'multiformats/hashes/sha2';
 import { LexiconDoc } from '@atproto/lexicon';
@@ -21,6 +22,8 @@ import { createOAuthRouter } from './routes/oauth.js';
 import {
   createDraft,
   getDraft,
+  getDraftRawRow,
+  getDraftByTriggerKeyHash,
   listDrafts,
   scheduleDraft,
   updateDraft,
@@ -29,8 +32,18 @@ import {
   getUserAuthorization,
   countActiveDraftsForUser,
   deleteUserData,
+  createSchedule,
+  getSchedule,
+  getRawSchedule,
+  listSchedules,
+  updateSchedule,
+  updateScheduleNextDraft,
+  deleteSchedule,
 } from './storage.js';
 import { publishDraft, notifyScheduler } from './scheduler.js';
+import { encrypt, decrypt, hmac } from './encrypt.js';
+import { computeNextOccurrence } from '@newpublic/recurrence';
+import type { RecurrenceRule } from '@newpublic/recurrence';
 
 const RAW_CODEC = 0x55;
 
@@ -44,12 +57,61 @@ async function computeBlobCid(data: Uint8Array): Promise<string> {
   return cid.toString();
 }
 
+/**
+ * Create a 'once' schedule and its first (only) draft, routing the draft through schedule machinery.
+ * Used by createRecord/putRecord when x-scheduled-at header is present.
+ */
+async function createOnceDraftThroughSchedule(params: {
+  userDid: string;
+  collection: string;
+  rkey: string;
+  uri: string;
+  cid: string;
+  record: Record<string, unknown>;
+  scheduledAt: number;
+  action: 'create' | 'put';
+  triggerKeyHash?: string;
+  triggerKeyEncrypted?: string;
+}): Promise<void> {
+  const scheduleId = randomUUID();
+  const onceRule: RecurrenceRule = {
+    rule: { type: 'once', datetime: new Date(params.scheduledAt).toISOString() },
+  };
+  await createSchedule({
+    id: scheduleId,
+    userDid: params.userDid,
+    collection: params.collection,
+    record: params.record,
+    contentUrl: null,
+    recurrenceRule: onceRule as unknown as Record<string, unknown>,
+    timezone: 'UTC',
+  });
+  await createDraft({
+    uri: params.uri,
+    userDid: params.userDid,
+    collection: params.collection,
+    rkey: params.rkey,
+    record: params.record,
+    recordCid: params.cid,
+    action: params.action,
+    scheduledAt: params.scheduledAt,
+    scheduleId,
+    triggerKeyHash: params.triggerKeyHash,
+    triggerKeyEncrypted: params.triggerKeyEncrypted,
+  });
+  await updateScheduleNextDraft(scheduleId, params.uri);
+}
+
 const logger = createLogger('Server');
 
 function loadLexicons(): LexiconDoc[] {
   // Load town.roundabout.scheduledPosts lexicons from bundled JSON files
   const lexiconDir = path.join(__dirname, '..', 'lexicons', 'town', 'roundabout', 'scheduledPosts');
-  const bundledNames = ['defs', 'listPosts', 'getPost', 'schedulePost', 'publishPost', 'updatePost', 'deletePost'];
+  const bundledNames = [
+    'defs',
+    'listPosts', 'getPost', 'schedulePost', 'publishPost', 'updatePost', 'deletePost',
+    'createSchedule', 'listSchedules', 'getSchedule', 'updateSchedule', 'deleteSchedule',
+  ];
   const bundled = bundledNames.map(name =>
     JSON.parse(readFileSync(path.join(lexiconDir, `${name}.json`), 'utf8')) as LexiconDoc,
   );
@@ -83,6 +145,13 @@ function buildAtUri(did: string, collection: string, rkey: string): string {
  */
 function getPdsUrlFromToken(token: string, defaultPdsUrl: string): string {
   return extractPdsUrlFromToken(token, defaultPdsUrl);
+}
+
+/**
+ * Build the one-time trigger URL from a plaintext key.
+ */
+function buildTriggerUrl(serviceUrl: string, plainKey: string): string {
+  return `${serviceUrl}/triggers/${plainKey}`;
 }
 
 export function createServer(config: ServiceConfig): express.Application {
@@ -190,6 +259,59 @@ export function createServer(config: ServiceConfig): express.Application {
     }
   });
 
+  // -------------------------------------------------------------------------
+  // Webhook trigger endpoint — no auth required (the URL is the secret)
+  // POST /triggers/:key
+  // Returns: { published: true, uri: "at://..." } or error
+  // -------------------------------------------------------------------------
+  app.post('/triggers/:key', async (req, res) => {
+    const plainKey = req.params.key;
+    /* istanbul ignore next */
+    if (!plainKey) {
+      res.status(400).json({ error: 'InvalidRequest', message: 'Trigger key is required' });
+      return;
+    }
+
+    try {
+      // Compute HMAC of the incoming key to look up the draft
+      const keyHash = hmac(plainKey, config.encryptionKey);
+      const draftRow = await getDraftByTriggerKeyHash(keyHash);
+
+      if (!draftRow) {
+        res.status(404).json({ error: 'NotFound', message: 'Trigger key not found' });
+        return;
+      }
+
+      // Check if already in terminal state
+      const terminalStatuses = ['published', 'failed', 'cancelled'];
+      if (terminalStatuses.includes(draftRow.status)) {
+        res.status(409).json({ error: 'TriggerAlreadyFired', message: 'This trigger has already been used or the draft is no longer active' });
+        return;
+      }
+
+      // Publish the draft (same path as publishPost)
+      await publishDraft(draftRow.uri, config);
+      notifyScheduler();
+
+      const published = await getDraft(draftRow.uri);
+      const actualStatus = published?.status ?? /* istanbul ignore next */ 'unknown';
+      if (actualStatus === 'published') {
+        res.json({ published: true, uri: draftRow.uri });
+      } else {
+        res.status(500).json({
+          error: 'PublishFailed',
+          message: published?.failureReason ?? 'Draft failed to publish',
+          status: actualStatus,
+          uri: draftRow.uri,
+        });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : /* istanbul ignore next */ String(err);
+      logger.error('Trigger endpoint error', err instanceof Error ? err : /* istanbul ignore next */ undefined);
+      res.status(500).json({ error: 'InternalError', message: msg });
+    }
+  });
+
   // Load lexicons
   const lexicons = loadLexicons();
   logger.info(`Loaded ${lexicons.length} lexicons`);
@@ -244,6 +366,7 @@ export function createServer(config: ServiceConfig): express.Application {
 
   // -------------------------------------------------------------------------
   // Write Interface - all three endpoints always create drafts
+  // Supports x-trigger: webhook header to create a one-time trigger URL
   // -------------------------------------------------------------------------
 
   server.method('com.atproto.repo.createRecord', async (ctx: xrpc.HandlerContext) => {
@@ -285,17 +408,47 @@ export function createServer(config: ServiceConfig): express.Application {
     const scheduledAtHeader = ctx.req.headers['x-scheduled-at'] as string | undefined;
     const scheduledAt = scheduledAtHeader ? new Date(scheduledAtHeader).getTime() : undefined;
 
+    // Check for webhook trigger header
+    const triggerHeader = ctx.req.headers['x-trigger'] as string | undefined;
+    let triggerKeyHash: string | undefined;
+    let triggerKeyEncrypted: string | undefined;
+    let triggerUrl: string | undefined;
+
+    if (triggerHeader === 'webhook') {
+      const plainKey = randomUUID();
+      triggerKeyHash = hmac(plainKey, config.encryptionKey);
+      triggerKeyEncrypted = encrypt(plainKey, config.encryptionKey);
+      triggerUrl = buildTriggerUrl(config.serviceUrl, plainKey);
+    }
+
     try {
-      await createDraft({
-        uri,
-        userDid: user.did,
-        collection: body.collection,
-        rkey,
-        record: body.record,
-        recordCid: cid,
-        action: 'create',
-        scheduledAt,
-      });
+      if (scheduledAt) {
+        await createOnceDraftThroughSchedule({
+          userDid: user.did,
+          collection: body.collection,
+          rkey,
+          uri,
+          cid,
+          record: body.record,
+          scheduledAt,
+          action: 'create',
+          triggerKeyHash,
+          triggerKeyEncrypted,
+        });
+      } else {
+        await createDraft({
+          uri,
+          userDid: user.did,
+          collection: body.collection,
+          rkey,
+          record: body.record,
+          recordCid: cid,
+          action: 'create',
+          scheduledAt: undefined,
+          triggerKeyHash,
+          triggerKeyEncrypted,
+        });
+      }
     } catch (err) {
       if ((err as { code?: string }).code === 'DuplicateDraft') {
         throw new xrpc.InvalidRequestError((err as Error).message, 'DuplicateDraft');
@@ -312,6 +465,7 @@ export function createServer(config: ServiceConfig): express.Application {
         uri,
         cid,
         validationStatus: 'unknown',
+        ...(triggerUrl ? { triggerUrl } : {}),
       },
     };
   });
@@ -351,17 +505,46 @@ export function createServer(config: ServiceConfig): express.Application {
     const scheduledAtHeader = ctx.req.headers['x-scheduled-at'] as string | undefined;
     const scheduledAt = scheduledAtHeader ? new Date(scheduledAtHeader).getTime() : undefined;
 
+    const triggerHeader = ctx.req.headers['x-trigger'] as string | undefined;
+    let triggerKeyHash: string | undefined;
+    let triggerKeyEncrypted: string | undefined;
+    let triggerUrl: string | undefined;
+
+    if (triggerHeader === 'webhook') {
+      const plainKey = randomUUID();
+      triggerKeyHash = hmac(plainKey, config.encryptionKey);
+      triggerKeyEncrypted = encrypt(plainKey, config.encryptionKey);
+      triggerUrl = buildTriggerUrl(config.serviceUrl, plainKey);
+    }
+
     try {
-      await createDraft({
-        uri,
-        userDid: user.did,
-        collection: body.collection,
-        rkey: body.rkey,
-        record: body.record,
-        recordCid: cid,
-        action: 'put',
-        scheduledAt,
-      });
+      if (scheduledAt) {
+        await createOnceDraftThroughSchedule({
+          userDid: user.did,
+          collection: body.collection,
+          rkey: body.rkey,
+          uri,
+          cid,
+          record: body.record,
+          scheduledAt,
+          action: 'put',
+          triggerKeyHash,
+          triggerKeyEncrypted,
+        });
+      } else {
+        await createDraft({
+          uri,
+          userDid: user.did,
+          collection: body.collection,
+          rkey: body.rkey,
+          record: body.record,
+          recordCid: cid,
+          action: 'put',
+          scheduledAt: undefined,
+          triggerKeyHash,
+          triggerKeyEncrypted,
+        });
+      }
     } catch (err) {
       if ((err as { code?: string }).code === 'DuplicateDraft') {
         throw new xrpc.InvalidRequestError((err as Error).message, 'DuplicateDraft');
@@ -378,6 +561,7 @@ export function createServer(config: ServiceConfig): express.Application {
         uri,
         cid,
         validationStatus: 'unknown',
+        ...(triggerUrl ? { triggerUrl } : {}),
       },
     };
   });
@@ -415,6 +599,18 @@ export function createServer(config: ServiceConfig): express.Application {
     const scheduledAtHeader = ctx.req.headers['x-scheduled-at'] as string | undefined;
     const scheduledAt = scheduledAtHeader ? new Date(scheduledAtHeader).getTime() : undefined;
 
+    const triggerHeader = ctx.req.headers['x-trigger'] as string | undefined;
+    let triggerKeyHash: string | undefined;
+    let triggerKeyEncrypted: string | undefined;
+    let triggerUrl: string | undefined;
+
+    if (triggerHeader === 'webhook') {
+      const plainKey = randomUUID();
+      triggerKeyHash = hmac(plainKey, config.encryptionKey);
+      triggerKeyEncrypted = encrypt(plainKey, config.encryptionKey);
+      triggerUrl = buildTriggerUrl(config.serviceUrl, plainKey);
+    }
+
     try {
       await createDraft({
         uri,
@@ -425,6 +621,8 @@ export function createServer(config: ServiceConfig): express.Application {
         recordCid: null,
         action: 'delete',
         scheduledAt,
+        triggerKeyHash,
+        triggerKeyEncrypted,
       });
     } catch (err) {
       if ((err as { code?: string }).code === 'DuplicateDraft') {
@@ -438,7 +636,9 @@ export function createServer(config: ServiceConfig): express.Application {
 
     return {
       encoding: 'application/json',
-      body: {},
+      body: {
+        ...(triggerUrl ? { triggerUrl } : {}),
+      },
     };
   });
 
@@ -468,10 +668,23 @@ export function createServer(config: ServiceConfig): express.Application {
       cursor: params.cursor,
     });
 
+    // Decrypt trigger keys so clients can retrieve the webhook URL from the list
+    const posts = result.drafts.map(({ triggerKeyEncrypted, ...view }) => {
+      if (triggerKeyEncrypted) {
+        try {
+          const plainKey = decrypt(triggerKeyEncrypted, config.encryptionKey);
+          return { ...view, triggerUrl: buildTriggerUrl(config.serviceUrl, plainKey) };
+        } catch {
+          // Decryption failure — omit triggerUrl for this draft
+        }
+      }
+      return view;
+    });
+
     return {
       encoding: 'application/json',
       body: {
-        posts: result.drafts,
+        posts,
         cursor: result.cursor,
       },
     };
@@ -497,9 +710,25 @@ export function createServer(config: ServiceConfig): express.Application {
       throw new xrpc.AuthRequiredError('You can only view your own drafts');
     }
 
+    // Populate triggerUrl if the draft has a webhook trigger
+    const rawRow = await getDraftRawRow(params.uri);
+    let triggerUrl: string | undefined;
+    if (rawRow?.trigger_key_encrypted) {
+      try {
+        const plainKey = decrypt(rawRow.trigger_key_encrypted, config.encryptionKey);
+        triggerUrl = buildTriggerUrl(config.serviceUrl, plainKey);
+      } catch {
+        // Decryption failure — don't expose the URL, just omit it
+        logger.warn('Failed to decrypt trigger key for getPost', { uri: params.uri });
+      }
+    }
+
     return {
       encoding: 'application/json',
-      body: draft,
+      body: {
+        ...draft,
+        ...(triggerUrl ? { triggerUrl } : {}),
+      },
     };
   });
 
@@ -637,6 +866,238 @@ export function createServer(config: ServiceConfig): express.Application {
     }
 
     await cancelDraft(body.uri);
+    notifyScheduler();
+
+    return {
+      encoding: 'application/json',
+      body: {},
+    };
+  });
+
+  // -------------------------------------------------------------------------
+  // Schedule Management Endpoints
+  // -------------------------------------------------------------------------
+
+  server.method('town.roundabout.scheduledPosts.createSchedule', async (ctx: xrpc.HandlerContext) => {
+    const user = await requireAuth(ctx.req.headers.authorization, ctx.req.headers.dpop as string | undefined);
+
+    const body = ctx.input?.body as {
+      collection: string;
+      recurrenceRule: Record<string, unknown>;
+      timezone: string;
+      record?: Record<string, unknown>;
+      contentUrl?: string;
+    };
+
+    /* istanbul ignore next */
+    if (!body?.collection || !body?.recurrenceRule || !body?.timezone) {
+      throw new xrpc.InvalidRequestError('collection, recurrenceRule, and timezone are required');
+    }
+
+    if (body.record && body.contentUrl) {
+      throw new xrpc.InvalidRequestError('record and contentUrl are mutually exclusive');
+    }
+
+    // Validate the recurrence rule by computing the first occurrence
+    const rule = body.recurrenceRule as unknown as RecurrenceRule;
+
+    const nextFireAt = computeNextOccurrence(rule, new Date());
+    if (!nextFireAt) {
+      throw new xrpc.InvalidRequestError('Recurrence rule produces no future occurrences');
+    }
+
+    const scheduleId = randomUUID();
+    await createSchedule({
+      id: scheduleId,
+      userDid: user.did,
+      collection: body.collection,
+      record: body.record ?? null,
+      contentUrl: body.contentUrl ?? null,
+      recurrenceRule: body.recurrenceRule,
+      timezone: body.timezone,
+    });
+
+    // Create the first draft
+    const rkey = `sched-${Date.now()}-${randomUUID().substring(0, 8)}`;
+    const uri = buildAtUri(user.did, body.collection, rkey);
+    const draftRecord = body.contentUrl ? null : (body.record ?? /* istanbul ignore next */ null);
+
+    await createDraft({
+      uri,
+      userDid: user.did,
+      collection: body.collection,
+      rkey,
+      record: draftRecord,
+      recordCid: null,
+      action: 'create',
+      scheduledAt: nextFireAt.getTime(),
+      scheduleId,
+    });
+
+    await updateScheduleNextDraft(scheduleId, uri);
+    notifyScheduler();
+
+    const updatedSchedule = await getSchedule(scheduleId);
+    logger.info('Schedule created', { scheduleId, nextFireAt: nextFireAt.toISOString() });
+
+    return {
+      encoding: 'application/json',
+      body: { schedule: updatedSchedule },
+    };
+  });
+
+  server.method('town.roundabout.scheduledPosts.listSchedules', async (ctx: xrpc.HandlerContext) => {
+    const user = await requireAuth(ctx.req.headers.authorization, ctx.req.headers.dpop as string | undefined);
+
+    const params = ctx.params as {
+      repo: string;
+      status?: string;
+      limit?: number;
+      cursor?: string;
+    };
+
+    if (params.repo !== user.did) {
+      throw new xrpc.AuthRequiredError('You can only list your own schedules');
+    }
+
+    const result = await listSchedules({
+      userDid: user.did,
+      status: params.status,
+      limit: Number(params.limit ?? /* istanbul ignore next */ 50),
+      cursor: params.cursor,
+    });
+
+    return {
+      encoding: 'application/json',
+      body: {
+        schedules: result.schedules,
+        cursor: result.cursor,
+      },
+    };
+  });
+
+  server.method('town.roundabout.scheduledPosts.getSchedule', async (ctx: xrpc.HandlerContext) => {
+    const user = await requireAuth(ctx.req.headers.authorization, ctx.req.headers.dpop as string | undefined);
+
+    const params = ctx.params as { id: string };
+    /* istanbul ignore next */
+    if (!params.id) {
+      throw new xrpc.InvalidRequestError('id is required');
+    }
+
+    const schedule = await getSchedule(params.id);
+    if (!schedule) {
+      throw new xrpc.InvalidRequestError('Schedule not found', 'NotFound');
+    }
+
+    // Verify ownership
+    const raw = await getRawSchedule(params.id);
+    if (raw?.user_did !== user.did) {
+      throw new xrpc.AuthRequiredError('You can only view your own schedules');
+    }
+
+    return {
+      encoding: 'application/json',
+      body: { schedule },
+    };
+  });
+
+  server.method('town.roundabout.scheduledPosts.updateSchedule', async (ctx: xrpc.HandlerContext) => {
+    const user = await requireAuth(ctx.req.headers.authorization, ctx.req.headers.dpop as string | undefined);
+
+    const body = ctx.input?.body as {
+      id: string;
+      recurrenceRule?: Record<string, unknown>;
+      timezone?: string;
+      record?: Record<string, unknown> | null;
+      contentUrl?: string | null;
+      status?: 'active' | 'paused';
+    };
+
+    /* istanbul ignore next */
+    if (!body?.id) {
+      throw new xrpc.InvalidRequestError('id is required');
+    }
+
+    const raw = await getRawSchedule(body.id);
+    if (!raw) {
+      throw new xrpc.InvalidRequestError('Schedule not found', 'NotFound');
+    }
+    if (raw.user_did !== user.did) {
+      throw new xrpc.AuthRequiredError('You can only update your own schedules');
+    }
+
+    const updateParams: Parameters<typeof updateSchedule>[1] = {};
+    if ('record' in body) updateParams.record = body.record ?? /* istanbul ignore next */ null;
+    if ('contentUrl' in body) updateParams.contentUrl = body.contentUrl ?? /* istanbul ignore next */ null;
+    if (body.recurrenceRule !== undefined) updateParams.recurrenceRule = body.recurrenceRule;
+    if (body.timezone !== undefined) updateParams.timezone = body.timezone;
+
+    // Handle pause/resume
+    if (body.status === 'paused' && raw.status === 'active') {
+      // Cancel the pending draft
+      if (raw.next_draft_uri) {
+        await cancelDraft(raw.next_draft_uri);
+      }
+      updateParams.status = 'paused';
+      await updateScheduleNextDraft(body.id, null);
+    } else if (body.status === 'active' && raw.status === 'paused') {
+      // Resume: create a new next draft
+      const ruleJson = body.recurrenceRule ?? JSON.parse(raw.recurrence_rule) as Record<string, unknown>;
+      const rule = ruleJson as unknown as RecurrenceRule;
+      const nextFireAt = computeNextOccurrence(rule, new Date());
+      if (nextFireAt) {
+        const rkey = `sched-${Date.now()}-${randomUUID().substring(0, 8)}`;
+        const collection = raw.collection;
+        const uri = buildAtUri(user.did, collection, rkey);
+        const draftRecord = raw.content_url ? null : (raw.record ? JSON.parse(raw.record) as Record<string, unknown> : null);
+
+        await createDraft({
+          uri,
+          userDid: user.did,
+          collection,
+          rkey,
+          record: draftRecord,
+          recordCid: null,
+          action: 'create',
+          scheduledAt: nextFireAt.getTime(),
+          scheduleId: body.id,
+        });
+
+        await updateScheduleNextDraft(body.id, uri);
+        notifyScheduler();
+      }
+      updateParams.status = 'active';
+    } else if (body.status !== undefined) {
+      updateParams.status = body.status;
+    }
+
+    const schedule = await updateSchedule(body.id, updateParams);
+
+    return {
+      encoding: 'application/json',
+      body: { schedule },
+    };
+  });
+
+  server.method('town.roundabout.scheduledPosts.deleteSchedule', async (ctx: xrpc.HandlerContext) => {
+    const user = await requireAuth(ctx.req.headers.authorization, ctx.req.headers.dpop as string | undefined);
+
+    const body = ctx.input?.body as { id: string };
+    /* istanbul ignore next */
+    if (!body?.id) {
+      throw new xrpc.InvalidRequestError('id is required');
+    }
+
+    const raw = await getRawSchedule(body.id);
+    if (!raw) {
+      throw new xrpc.InvalidRequestError('Schedule not found', 'NotFound');
+    }
+    if (raw.user_did !== user.did) {
+      throw new xrpc.AuthRequiredError('You can only delete your own schedules');
+    }
+
+    await deleteSchedule(body.id);
     notifyScheduler();
 
     return {

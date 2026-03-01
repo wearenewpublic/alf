@@ -173,7 +173,9 @@
     }
 
     input[type="text"],
+    input[type="number"],
     input[type="datetime-local"],
+    select,
     textarea {
       width: 100%;
       padding: 0.5rem 0.65rem;
@@ -189,10 +191,17 @@
     }
 
     input[type="text"]:focus,
+    input[type="number"]:focus,
     input[type="datetime-local"]:focus,
+    select:focus,
     textarea:focus { border-color: var(--indigo); }
 
+    input[type="text"]:disabled,
+    input[type="datetime-local"]:disabled { background: var(--bg-page); color: var(--text-faint); }
+
     textarea { resize: vertical; min-height: 80px; }
+
+    select { appearance: auto; cursor: pointer; }
 
     .image-upload-area {
       border: 1px dashed var(--border);
@@ -309,7 +318,6 @@
     .banner-warn    { background: #fffbeb; color: #92400e; border-color: #f59e0b; }
     .banner-demo    { background: #fefce8; color: #713f12; border-color: #ca8a04; font-size: 0.8rem; margin-bottom: 1.25rem; line-height: 1.5; }
 
-
     .status-row {
       display: flex;
       align-items: center;
@@ -334,6 +342,93 @@
     .badge-draft     { background: #f3f4f6; color: #4b5563; }
     .badge-failed    { background: #fee2e2; color: #991b1b; }
     .badge-pending   { background: #f3f4f6; color: #4b5563; }
+    .badge-recurring { background: #fef3c7; color: #92400e; }
+
+    /* ── Trigger toggle ──────────────────────────────────────────────── */
+
+    .trigger-toggle {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      margin-bottom: 0.8rem;
+      padding: 0.5rem 0.65rem;
+      border: 1px solid var(--border);
+      background: var(--bg-page);
+      cursor: pointer;
+      user-select: none;
+    }
+    .trigger-toggle:hover { border-color: #c7d2fe; background: var(--indigo-light); }
+    .trigger-toggle input[type="checkbox"] {
+      width: auto;
+      margin: 0;
+      accent-color: var(--indigo);
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .trigger-toggle-text {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .trigger-toggle-desc {
+      font-size: 0.72rem;
+      color: var(--text-faint);
+      margin-left: auto;
+    }
+
+    /* ── Trigger URL display in post cards ──────────────────────────── */
+
+    .trigger-url-box {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      padding: 0.4rem 0.55rem;
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .trigger-url-label {
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: #166534;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .trigger-url-value {
+      font-family: monospace;
+      font-size: 0.72rem;
+      color: #166534;
+      word-break: break-all;
+      flex: 1;
+      background: transparent;
+      border: none;
+      padding: 0;
+    }
+
+    /* ── Tab bar ─────────────────────────────────────────────────────── */
+
+    .tab-bar {
+      display: flex;
+      gap: 0.1rem;
+      border-bottom: 2px solid var(--border);
+      margin-bottom: 1.25rem;
+    }
+    .tab {
+      padding: 0.45rem 1rem;
+      font-size: 0.82rem;
+      font-weight: 600;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+      cursor: pointer;
+      color: var(--text-muted);
+      transition: color 0.15s, border-color 0.15s;
+      border-radius: 4px 4px 0 0;
+    }
+    .tab:hover { color: var(--indigo); background: var(--indigo-light); }
+    .tab.active { color: var(--indigo); border-bottom-color: var(--indigo); }
 
     /* ── Post list ───────────────────────────────────────────────────── */
 
@@ -370,7 +465,45 @@
     }
     .post-bsky-link:hover { text-decoration: underline; }
 
-    .edit-fields { margin-bottom: 0.5rem; }
+    /* ── Schedule items ──────────────────────────────────────────────── */
+
+    .schedule-item {
+      border-top: 1px solid var(--border);
+      padding: 0.85rem 0;
+    }
+    .schedule-item:last-child { border-bottom: 1px solid var(--border); }
+
+    /* ── Day-of-week checkboxes ──────────────────────────────────────── */
+
+    .days-checkboxes {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      margin-bottom: 0.8rem;
+    }
+    .inline-check {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+    .inline-check input[type="checkbox"] {
+      width: auto;
+      margin: 0;
+      accent-color: var(--indigo);
+    }
+
+    /* ── Time row for schedule form ──────────────────────────────────── */
+
+    .time-row {
+      display: flex;
+      gap: 0.5rem;
+    }
+    .time-row > div { flex: 1; }
+    .time-row input[type="number"] { width: 100%; }
 
     .hidden { display: none !important; }
 
@@ -386,7 +519,8 @@
       background: var(--indigo-light);
     }
 
-    #posts-list .empty-state {
+    #posts-list .empty-state,
+    #schedules-list .empty-state {
       color: var(--text-faint);
       font-size: 0.85rem;
       padding: 1.5rem 0;
@@ -614,51 +748,228 @@
             <span>Signed in as</span>
             <span class="user-label" id="did-label-3"></span>
             <span class="badge badge-published">authorized ✓</span>
-            <button class="btn btn-danger" id="delete-account-btn" style="margin-left:auto;" title="Cancel all drafts and remove ALF's authorization to post on your behalf">Delete account data</button>
+            <button class="btn btn-outline" id="reauth-btn" style="margin-left:auto;" title="Re-authorize ALF to post on your behalf (fixes token issues, your drafts are preserved)">Reconnect</button>
+            <button class="btn btn-outline" id="signout-btn" title="Sign out and re-authorize (your drafts are preserved)">Sign out</button>
+            <button class="btn btn-danger" id="delete-account-btn" title="Cancel all drafts and remove ALF's authorization to post on your behalf">Delete account data</button>
           </div>
         </div>
 
-        <div class="form-section">
-          <div class="form-section-title" id="form-title">Schedule a Post</div>
+        <!-- Outer tab bar: Create Post | Drafts -->
+        <div class="tab-bar" style="margin-bottom:0;">
+          <button class="tab active" data-outer-tab="create">Create Post</button>
+          <button class="tab" data-outer-tab="drafts">Drafts</button>
+          <button class="tab" data-outer-tab="delivered">Delivered</button>
+        </div>
 
-          <label for="post-text">Post text</label>
-          <textarea id="post-text" placeholder="What's on your mind?"></textarea>
+        <!-- Create Post pane -->
+        <div id="outer-pane-create" class="form-section" style="border-top:none;margin-top:0;">
+          <div id="form-title" class="hidden" style="font-size:0.78rem;font-weight:600;color:var(--indigo);margin-bottom:0.75rem;"></div>
 
-          <label for="scheduled-at">Schedule for</label>
-          <div class="time-presets">
-            <button type="button" class="btn-preset" id="preset-90s">+90s</button>
-            <button type="button" class="btn-preset" id="preset-1hr">+1 hr</button>
-            <button type="button" class="btn-preset" id="preset-tomorrow">Tomorrow 9am</button>
-            <button type="button" class="btn-preset" id="preset-next-week">Next week</button>
-            <button type="button" class="btn-preset" id="preset-draft">Draft</button>
+          <div class="tab-bar">
+            <button class="tab active" data-tab="timed">Timed</button>
+            <button class="tab" data-tab="webhook">Webhook</button>
+            <button class="tab" data-tab="recurring">Recurring</button>
           </div>
-          <input type="datetime-local" id="scheduled-at" />
 
-          <label>Image (optional)</label>
-          <div class="image-upload-area">
-            <input type="file" id="image-input" accept="image/jpeg,image/png,image/gif,image/webp" />
-            <div id="image-preview-wrap" class="hidden">
-              <img id="image-preview" alt="" />
-              <input type="text" id="image-alt" placeholder="Alt text (describe the image)" />
-              <button type="button" id="image-clear-btn" class="btn btn-secondary" style="align-self:flex-start;padding:0.25rem 0.6rem;font-size:0.78rem;">Remove image</button>
+          <!-- Post form fields (Timed + Webhook tabs) -->
+          <div id="post-form-fields">
+            <label for="post-text">Post text</label>
+            <textarea id="post-text" placeholder="What's on your mind?"></textarea>
+
+            <!-- Timed: datetime picker -->
+            <div id="timed-schedule-section">
+              <label for="scheduled-at">Schedule for</label>
+              <div class="time-presets">
+                <button type="button" class="btn-preset" id="preset-90s">+90s</button>
+                <button type="button" class="btn-preset" id="preset-1hr">+1 hr</button>
+                <button type="button" class="btn-preset" id="preset-tomorrow">Tomorrow 9am</button>
+                <button type="button" class="btn-preset" id="preset-next-week">Next week</button>
+                <button type="button" class="btn-preset" id="preset-draft">Draft</button>
+              </div>
+              <input type="datetime-local" id="scheduled-at" />
+            </div>
+
+            <!-- Webhook: info note -->
+            <p id="webhook-note" class="hidden" style="font-size:0.82rem;color:#4338ca;background:var(--indigo-light);border:1px solid #c7d2fe;border-radius:6px;padding:0.6rem 0.75rem;margin-bottom:0.75rem;">
+              A one-time secret URL will be generated. Call it with <code>POST</code> to publish on demand — no schedule needed.
+            </p>
+
+            <label>Image (optional)</label>
+            <div class="image-upload-area">
+              <input type="file" id="image-input" accept="image/jpeg,image/png,image/gif,image/webp" />
+              <div id="image-preview-wrap" class="hidden">
+                <img id="image-preview" alt="" />
+                <input type="text" id="image-alt" placeholder="Alt text (describe the image)" />
+                <button type="button" id="image-clear-btn" class="btn btn-secondary" style="align-self:flex-start;padding:0.25rem 0.6rem;font-size:0.78rem;">Remove image</button>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+              <button class="btn btn-primary" id="schedule-btn">Schedule Post</button>
+              <button class="btn btn-secondary hidden" id="cancel-edit-btn">Cancel</button>
+            </div>
+            <div id="schedule-success" class="banner banner-success hidden" style="margin-top:0.75rem;"></div>
+            <p id="schedule-error" style="color:#ef4444;font-size:0.82rem;margin-top:0.5rem;" class="hidden"></p>
+          </div>
+
+          <!-- Recurring section (Recurring tab only) -->
+          <div id="recurring-section" class="hidden">
+            <label for="sched-text">Post text</label>
+            <textarea id="sched-text" placeholder="Text posted on each occurrence…" style="min-height:60px;"></textarea>
+
+            <!-- Frequency type + interval -->
+            <div class="time-row">
+              <div>
+                <label for="sched-type">Frequency</label>
+                <select id="sched-type">
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="quarterly">Quarterly</option>
+                  <option value="yearly">Yearly</option>
+                </select>
+              </div>
+              <div>
+                <label for="sched-interval">Every</label>
+                <div style="display:flex;align-items:center;gap:0.4rem;">
+                  <input type="number" id="sched-interval" min="1" value="1" style="width:56px;" />
+                  <span id="sched-interval-unit" style="font-size:0.82rem;color:var(--text-muted);white-space:nowrap;">days</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Weekly: days of week -->
+            <div id="sched-weekly-opts" class="hidden">
+              <label>Days of week</label>
+              <div class="days-checkboxes">
+                <label class="inline-check"><input type="checkbox" name="sched-day" value="1" checked /> Mon</label>
+                <label class="inline-check"><input type="checkbox" name="sched-day" value="2" /> Tue</label>
+                <label class="inline-check"><input type="checkbox" name="sched-day" value="3" /> Wed</label>
+                <label class="inline-check"><input type="checkbox" name="sched-day" value="4" /> Thu</label>
+                <label class="inline-check"><input type="checkbox" name="sched-day" value="5" /> Fri</label>
+                <label class="inline-check"><input type="checkbox" name="sched-day" value="6" /> Sat</label>
+                <label class="inline-check"><input type="checkbox" name="sched-day" value="0" /> Sun</label>
+              </div>
+            </div>
+
+            <!-- Monthly: sub-pattern -->
+            <div id="sched-monthly-opts" class="hidden">
+              <label for="sched-monthly-pattern">On</label>
+              <select id="sched-monthly-pattern">
+                <option value="on_day">a specific day of the month</option>
+                <option value="nth_weekday">the Nth weekday</option>
+                <option value="last_business_day">the last business day</option>
+              </select>
+            </div>
+
+            <!-- Yearly: sub-pattern -->
+            <div id="sched-yearly-opts" class="hidden">
+              <label for="sched-yearly-pattern">On</label>
+              <select id="sched-yearly-pattern">
+                <option value="on_month_day">a specific month and day</option>
+                <option value="nth_weekday">the Nth weekday of a month</option>
+              </select>
+            </div>
+
+            <!-- Shared: month selector (yearly patterns) -->
+            <div id="sched-month-row" class="hidden">
+              <label for="sched-month">Month</label>
+              <select id="sched-month">
+                <option value="1">January</option>
+                <option value="2">February</option>
+                <option value="3">March</option>
+                <option value="4">April</option>
+                <option value="5">May</option>
+                <option value="6">June</option>
+                <option value="7">July</option>
+                <option value="8">August</option>
+                <option value="9">September</option>
+                <option value="10">October</option>
+                <option value="11">November</option>
+                <option value="12">December</option>
+              </select>
+            </div>
+
+            <!-- Shared: day of month (monthly on_day, yearly on_month_day) -->
+            <div id="sched-dom-row" class="hidden">
+              <label for="sched-dom">Day of month <span style="color:var(--text-muted);font-size:0.78rem;">(1–31, clamped to month end)</span></label>
+              <input type="number" id="sched-dom" min="1" max="31" value="1" style="width:72px;" />
+            </div>
+
+            <!-- Shared: Nth ordinal + weekday (monthly/yearly nth_weekday, quarterly) -->
+            <div id="sched-nth-weekday-row" class="hidden">
+              <div class="time-row" style="margin-top:0;">
+                <div id="sched-nth-col">
+                  <label for="sched-nth">Which</label>
+                  <select id="sched-nth">
+                    <option value="1">1st</option>
+                    <option value="2">2nd</option>
+                    <option value="3">3rd</option>
+                    <option value="4">4th</option>
+                    <option value="-1">Last</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="sched-weekday">Weekday</label>
+                  <select id="sched-weekday">
+                    <option value="1">Monday</option>
+                    <option value="2">Tuesday</option>
+                    <option value="3">Wednesday</option>
+                    <option value="4">Thursday</option>
+                    <option value="5">Friday</option>
+                    <option value="6">Saturday</option>
+                    <option value="0">Sunday</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Time of day + timezone -->
+            <div class="time-row">
+              <div>
+                <label for="sched-hour">Hour (0–23)</label>
+                <input type="number" id="sched-hour" min="0" max="23" value="9" />
+              </div>
+              <div>
+                <label for="sched-minute">Minute</label>
+                <input type="number" id="sched-minute" min="0" max="59" value="0" />
+              </div>
+            </div>
+
+            <label for="sched-tz">Timezone</label>
+            <select id="sched-tz">
+              <option value="UTC">UTC</option>
+              <option value="America/New_York">America/New_York (ET)</option>
+              <option value="America/Chicago">America/Chicago (CT)</option>
+              <option value="America/Denver">America/Denver (MT)</option>
+              <option value="America/Los_Angeles">America/Los_Angeles (PT)</option>
+              <option value="Europe/London">Europe/London</option>
+              <option value="Europe/Paris">Europe/Paris</option>
+              <option value="Asia/Tokyo">Asia/Tokyo</option>
+              <option value="Australia/Sydney">Australia/Sydney</option>
+            </select>
+
+            <button class="btn btn-primary" id="create-schedule-btn">Create Schedule</button>
+            <div id="sched-success" class="banner banner-success hidden" style="margin-top:0.75rem;"></div>
+            <p id="sched-error" style="color:#ef4444;font-size:0.82rem;margin-top:0.5rem;" class="hidden"></p>
+
+            <div id="schedules-list" style="margin-top:1rem;">
+              <div class="empty-state">No recurring schedules yet.</div>
             </div>
           </div>
-
-          <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-            <button class="btn btn-primary" id="schedule-btn">Schedule Post</button>
-            <button class="btn btn-secondary hidden" id="cancel-edit-btn">Cancel</button>
-          </div>
-          <div id="schedule-success" class="banner banner-success hidden" style="margin-top:0.75rem;"></div>
-          <p id="schedule-error" style="color:#ef4444;font-size:0.82rem;margin-top:0.5rem;" class="hidden"></p>
         </div>
 
-        <div class="form-section" style="border-bottom:none;margin-bottom:0;padding-bottom:0;">
-          <div class="form-section-title">
-            Drafts
-            <span style="font-size:0.68rem;color:var(--text-faint);font-weight:400;">(live)</span>
-          </div>
+        <!-- Drafts pane (hidden by default) -->
+        <div id="outer-pane-drafts" class="form-section hidden" style="border-bottom:none;margin-bottom:0;padding-bottom:0;">
           <div id="posts-list">
             <div class="empty-state">Loading...</div>
+          </div>
+        </div>
+
+        <!-- Delivered pane (hidden by default) -->
+        <div id="outer-pane-delivered" class="form-section hidden" style="border-bottom:none;margin-bottom:0;padding-bottom:0;">
+          <div id="delivered-list">
+            <div class="empty-state">No delivered posts yet.</div>
           </div>
         </div>
 
@@ -674,7 +985,7 @@
           atproto Latency Fabric is an XRPC proxy draft scheduler for <a href="https://atproto.com" style="color:var(--indigo);text-decoration:none;font-weight:600;">atproto</a> records. Writes go in now, records appear in the feed later — at exactly the time you specify.
         </p>
         <p>
-          Drop it in front of any atproto client: point writes at the proxy instead of directly at the PDS to get scheduled posting, drafts, and queued writes without changing your data model.
+          Drop it in front of any atproto client: point writes at the proxy instead of directly at the PDS to get scheduled posting, drafts, recurring schedules, and webhook-triggered publishing without changing your data model.
         </p>
       </div>
 
@@ -688,15 +999,15 @@
           </div>
           <div class="arch-edge">
             <span class="arch-edge-arrow">↓</span>
-            <span class="arch-edge-label">XRPC write + x-scheduled-at</span>
+            <span class="arch-edge-label">XRPC write + x-scheduled-at / x-trigger: webhook</span>
           </div>
           <div class="arch-node arch-node-alf">
             <span class="arch-node-title">atproto Latency Fabric</span>
-            <span class="arch-node-sub">transparent proxy · stores draft</span>
+            <span class="arch-node-sub">transparent proxy · stores draft · schedules recurrences</span>
           </div>
           <div class="arch-edge">
             <span class="arch-edge-arrow">↓</span>
-            <span class="arch-edge-label">at scheduled time</span>
+            <span class="arch-edge-label">at scheduled time · on trigger call · on recurrence fire</span>
           </div>
           <div class="arch-node">
             <span class="arch-node-title">PDS</span>
@@ -711,7 +1022,7 @@
           </li>
           <li>
             <span class="step-num">2</span>
-            <span><strong style="color:var(--text);">Redirect your writes</strong> — point XRPC write calls at the proxy. Add the <code>x-scheduled-at</code> header to set the publish time.</span>
+            <span><strong style="color:var(--text);">Redirect your writes</strong> — point XRPC write calls at the proxy. Add <code>x-scheduled-at</code> to set a time, or <code>x-trigger: webhook</code> to get a one-time publish URL.</span>
           </li>
           <li>
             <span class="step-num">3</span>
@@ -719,13 +1030,36 @@
           </li>
           <li>
             <span class="step-num">4</span>
-            <span><strong style="color:var(--text);">Auto-publish</strong> — the built-in scheduler wakes up exactly at the scheduled time and commits the record to your PDS.</span>
+            <span><strong style="color:var(--text);">Auto-publish</strong> — the built-in scheduler wakes up at the scheduled time, or publishes when the trigger URL is called.</span>
           </li>
           <li>
             <span class="step-num">5</span>
             <span><strong style="color:var(--text);">Manage drafts</strong> — list, reschedule, publish immediately, or cancel via <code>town.roundabout.scheduledPosts.*</code> XRPC methods.</span>
           </li>
         </ol>
+      </div>
+
+      <div class="info-section">
+        <h2>Webhook Triggers</h2>
+        <p>
+          Add <code>x-trigger: webhook</code> to any write request. ALF generates a one-time secret URL and returns it in the response. Anyone with the URL can call <code>POST {triggerUrl}</code> (no auth required) to immediately publish the draft.
+        </p>
+        <p>
+          The URL is the secret — share it with Zapier, a bot, or any external system. The key is never stored in plaintext: ALF keeps an HMAC-SHA256 hash for O(1) lookup and an AES-256-GCM encrypted copy for retrieval. Calling the URL a second time returns <code>409 TriggerAlreadyFired</code>.
+        </p>
+      </div>
+
+      <div class="info-section">
+        <h2>Recurring Schedules</h2>
+        <p>
+          Create a schedule with a recurrence rule and ALF will automatically create and publish one draft per occurrence. Each fired occurrence is stored as a permanent draft record — full publish history, no data loss.
+        </p>
+        <p>
+          Schedules support <strong>static content</strong> (same post every time) or <strong>dynamic content</strong> via a <code>contentUrl</code> fetched at publish time with <code>?fireCount=N&amp;scheduledAt=T</code> query params. Pause, resume, or delete schedules at any time. DST transitions are handled automatically using IANA timezone names.
+        </p>
+        <p>
+          Rule types: <strong>once</strong>, <strong>daily</strong>, <strong>weekly</strong>, <strong>monthly on day</strong>, <strong>monthly last business day</strong>, <strong>yearly on month/day</strong>, <strong>quarterly last weekday</strong>, and more. Per-occurrence exceptions let you cancel, reschedule, or override the content of any individual firing.
+        </p>
       </div>
 
     </div><!-- /info-panel -->

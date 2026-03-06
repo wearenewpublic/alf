@@ -240,6 +240,7 @@ export function createServer(config: ServiceConfig): express.Application {
       res.json({
         authorized: !!auth,
         authType: auth?.auth_type ?? null,
+        disableRecurring: config.disableRecurring,
       });
     } catch (err) {
       logger.warn('oauth/status auth failed', { error: err instanceof Error ? err.message : /* istanbul ignore next */ String(err) });
@@ -879,6 +880,10 @@ export function createServer(config: ServiceConfig): express.Application {
   // -------------------------------------------------------------------------
 
   server.method('town.roundabout.scheduledPosts.createSchedule', async (ctx: xrpc.HandlerContext) => {
+    if (config.disableRecurring) {
+      throw new xrpc.AuthRequiredError('Recurring schedules are disabled on this server');
+    }
+
     const user = await requireAuth(ctx.req.headers.authorization, ctx.req.headers.dpop as string | undefined);
 
     const body = ctx.input?.body as {

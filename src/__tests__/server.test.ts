@@ -92,6 +92,7 @@ const config: ServiceConfig = {
   maxDraftsPerUser: null,
   allowedCollections: '*',
   oauthScope: 'atproto repo:*?action=create blob:*/*',
+  disableRecurring: false,
 };
 
 const AUTH_HEADER = 'Bearer test-token';

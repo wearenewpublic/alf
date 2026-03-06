@@ -3,6 +3,7 @@
 
 import { BrowserOAuthClient } from '@atproto/oauth-client-browser';
 import type { OAuthSession } from '@atproto/oauth-client-browser';
+import { parseRecurrenceRule, formatRecurrenceRule } from '@newpublic/recurrence';
 
 // ---------------------------------------------------------------------------
 // State
@@ -93,11 +94,13 @@ async function render(): Promise<void> {
   userLabel = await resolveUserLabel(did);
 
   let alfAuthorized = false;
+  let recurringDisabled = false;
   try {
     const response = await alfFetch('/oauth/status');
     if (response.ok) {
-      const data = await response.json() as { authorized?: boolean };
+      const data = await response.json() as { authorized?: boolean; disableRecurring?: boolean };
       alfAuthorized = data.authorized === true;
+      recurringDisabled = data.disableRecurring === true;
     }
   } catch (_) {
     // ALF unreachable or not authorized
@@ -114,6 +117,7 @@ async function render(): Promise<void> {
 
   document.getElementById('did-label-3')!.textContent = userLabel;
   showView('view-authorized');
+  applyRecurringDisabled(recurringDisabled);
   await loadPosts();
   await loadSchedules();
   if (postsInterval) clearInterval(postsInterval);
@@ -758,56 +762,6 @@ function renderSchedules(): void {
   });
 }
 
-function describeRule(rule: Record<string, any>, timezone: string): string {
-  const time = (rule.time as Record<string, any>) || {};
-  const hour: number = time.hour ?? 0;
-  const minute: number = time.minute ?? 0;
-  const timeStr = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-  const tz = timezone || (time.timezone as string) || 'UTC';
-
-  if (rule.type === 'daily') {
-    const interval: number = rule.interval ?? 1;
-    return interval === 1
-      ? `Daily at ${timeStr} ${tz}`
-      : `Every ${interval} days at ${timeStr} ${tz}`;
-  }
-  if (rule.type === 'weekly') {
-    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const days = ((rule.daysOfWeek as number[]) ?? []).map((d: number) => dayNames[d] ?? String(d)).join(', ');
-    return `Weekly on ${days} at ${timeStr} ${tz}`;
-  }
-  if (rule.type === 'monthly_on_day') {
-    return `Monthly on day ${rule.dayOfMonth as number} at ${timeStr} ${tz}`;
-  }
-  if (rule.type === 'monthly_nth_weekday') {
-    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const nth = (rule.nth as number) === -1 ? 'last' : `${rule.nth as number}th`;
-    return `Monthly, ${nth} ${dayNames[rule.weekday as number] ?? String(rule.weekday)} at ${timeStr} ${tz}`;
-  }
-  if (rule.type === 'monthly_last_business_day') {
-    return `Monthly, last business day at ${timeStr} ${tz}`;
-  }
-  if (rule.type === 'yearly_on_month_day') {
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const monthName = monthNames[(rule.month as number) - 1] ?? String(rule.month);
-    return `Yearly on ${monthName} ${rule.dayOfMonth as number} at ${timeStr} ${tz}`;
-  }
-  if (rule.type === 'yearly_nth_weekday') {
-    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const nth = (rule.nth as number) === -1 ? 'last' : `${rule.nth as number}th`;
-    const monthName = monthNames[(rule.month as number) - 1] ?? String(rule.month);
-    return `Yearly, ${nth} ${dayNames[rule.weekday as number] ?? String(rule.weekday)} of ${monthName} at ${timeStr} ${tz}`;
-  }
-  if (rule.type === 'quarterly_last_weekday') {
-    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    return `Quarterly, last ${dayNames[rule.weekday as number] ?? String(rule.weekday)} at ${timeStr} ${tz}`;
-  }
-  if (rule.type === 'once') {
-    return `Once at ${new Date(rule.datetime as string).toLocaleString()}`;
-  }
-  return `${rule.type as string} schedule`;
-}
 
 function renderScheduleCard(schedule: Record<string, any>): string {
   const status: string = schedule.status || 'active';
@@ -820,9 +774,9 @@ function renderScheduleCard(schedule: Record<string, any>): string {
   };
   const badgeCls = statusBadge[status] || 'badge-pending';
 
-  const rule = (schedule.recurrenceRule as Record<string, any>) || {};
-  const ruleCore = (rule.rule as Record<string, any>) || {};
-  const ruleDesc = describeRule(ruleCore, schedule.timezone as string);
+  const ruleDesc = schedule.recurrenceRule
+    ? formatRecurrenceRule(schedule.recurrenceRule as any)
+    : (schedule.timezone as string) || 'unknown schedule';
 
   const fireCount: number = schedule.fireCount ?? 0;
   const lastFired = schedule.lastFiredAt
@@ -943,6 +897,24 @@ function updateScheduleFormVisibility(): void {
   show('sched-nth-weekday-row', showNthWeekday);
 }
 
+function applyRecurringDisabled(disabled: boolean): void {
+  const notice = document.getElementById('sched-disabled-notice') as HTMLElement;
+  const btn = document.getElementById('create-schedule-btn') as HTMLButtonElement;
+  const nlpBtn = document.getElementById('sched-nlp-btn') as HTMLButtonElement;
+  const nlpInput = document.getElementById('sched-nlp') as HTMLInputElement;
+  if (disabled) {
+    notice.classList.remove('hidden');
+    btn.disabled = true;
+    nlpBtn.disabled = true;
+    nlpInput.disabled = true;
+  } else {
+    notice.classList.add('hidden');
+    btn.disabled = false;
+    nlpBtn.disabled = false;
+    nlpInput.disabled = false;
+  }
+}
+
 function wireCreateScheduleForm(): void {
   const typeSelect = document.getElementById('sched-type') as HTMLSelectElement;
   const monthlyPatternSelect = document.getElementById('sched-monthly-pattern') as HTMLSelectElement;
@@ -956,6 +928,120 @@ function wireCreateScheduleForm(): void {
   updateScheduleFormVisibility();
 
   document.getElementById('create-schedule-btn')!.addEventListener('click', performCreateSchedule);
+}
+
+function currentTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch (_) {
+    return 'UTC';
+  }
+}
+
+function wireNlpInput(): void {
+  const input = document.getElementById('sched-nlp') as HTMLInputElement;
+  const btn = document.getElementById('sched-nlp-btn') as HTMLButtonElement;
+  const feedback = document.getElementById('sched-nlp-feedback') as HTMLElement;
+
+  function applyParsed(): void {
+    const text = input.value.trim();
+    if (!text) return;
+
+    const result = parseRecurrenceRule(text, currentTimezone());
+
+    if (!result) {
+      feedback.textContent = "Couldn't parse — try: 'every Monday at 9am ET'";
+      feedback.style.color = '#ef4444';
+      feedback.classList.remove('hidden');
+      return;
+    }
+
+    const c = result.rule;
+
+    // Map parsed rule type to form select value
+    const typeSelect = document.getElementById('sched-type') as HTMLSelectElement;
+    const intervalInput = document.getElementById('sched-interval') as HTMLInputElement;
+    const hourInput = document.getElementById('sched-hour') as HTMLInputElement;
+    const minuteInput = document.getElementById('sched-minute') as HTMLInputElement;
+    const tzSelect = document.getElementById('sched-tz') as HTMLSelectElement;
+    const monthlyPatternSelect = document.getElementById('sched-monthly-pattern') as HTMLSelectElement;
+    const yearlyPatternSelect = document.getElementById('sched-yearly-pattern') as HTMLSelectElement;
+    const nthSelect = document.getElementById('sched-nth') as HTMLSelectElement;
+    const weekdaySelect = document.getElementById('sched-weekday') as HTMLSelectElement;
+    const monthSelect = document.getElementById('sched-month') as HTMLSelectElement;
+    const domInput = document.getElementById('sched-dom') as HTMLInputElement;
+
+    // Resolve time spec (all rules except 'once' have a time field)
+    const time = (c as any).time;
+
+    // Set hour/minute/timezone
+    if (time) {
+      hourInput.value = String(time.hour ?? 9);
+      minuteInput.value = String(time.minute ?? 0);
+      // Try to set timezone — find matching option value
+      const tz = time.timezone ?? 'UTC';
+      const tzOption = Array.from(tzSelect.options).find(o => o.value === tz);
+      if (tzOption) {
+        tzSelect.value = tz;
+      }
+    }
+
+    // Set frequency type and sub-options
+    if (c.type === 'daily') {
+      typeSelect.value = 'daily';
+      intervalInput.value = String((c as any).interval ?? 1);
+    } else if (c.type === 'weekly') {
+      typeSelect.value = 'weekly';
+      intervalInput.value = String((c as any).interval ?? 1);
+      // Check/uncheck weekday checkboxes
+      const daysOfWeek: number[] = (c as any).daysOfWeek ?? [];
+      document.querySelectorAll<HTMLInputElement>('input[name="sched-day"]').forEach(cb => {
+        cb.checked = daysOfWeek.includes(parseInt(cb.value, 10));
+      });
+    } else if (c.type === 'monthly_on_day') {
+      typeSelect.value = 'monthly';
+      monthlyPatternSelect.value = 'on_day';
+      intervalInput.value = String((c as any).interval ?? 1);
+      domInput.value = String((c as any).dayOfMonth ?? 1);
+    } else if (c.type === 'monthly_nth_weekday') {
+      typeSelect.value = 'monthly';
+      monthlyPatternSelect.value = 'nth_weekday';
+      intervalInput.value = String((c as any).interval ?? 1);
+      nthSelect.value = String((c as any).nth ?? 1);
+      weekdaySelect.value = String((c as any).weekday ?? 1);
+    } else if (c.type === 'monthly_last_business_day') {
+      typeSelect.value = 'monthly';
+      monthlyPatternSelect.value = 'last_business_day';
+      intervalInput.value = String((c as any).interval ?? 1);
+    } else if (c.type === 'quarterly_last_weekday') {
+      typeSelect.value = 'quarterly';
+      weekdaySelect.value = String((c as any).weekday ?? 5);
+    } else if (c.type === 'yearly_on_month_day') {
+      typeSelect.value = 'yearly';
+      yearlyPatternSelect.value = 'on_month_day';
+      monthSelect.value = String((c as any).month ?? 1);
+      domInput.value = String((c as any).dayOfMonth ?? 1);
+    } else if (c.type === 'yearly_nth_weekday') {
+      typeSelect.value = 'yearly';
+      yearlyPatternSelect.value = 'nth_weekday';
+      monthSelect.value = String((c as any).month ?? 1);
+      nthSelect.value = String((c as any).nth ?? 1);
+      weekdaySelect.value = String((c as any).weekday ?? 1);
+    }
+
+    // Refresh visibility of sub-options
+    updateScheduleFormVisibility();
+
+    // Build human-readable summary for the feedback line
+    feedback.textContent = `Parsed: ${formatRecurrenceRule(result)}`;
+    feedback.style.color = '#166534';
+    feedback.classList.remove('hidden');
+  }
+
+  btn.addEventListener('click', applyParsed);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') applyParsed();
+  });
 }
 
 async function performCreateSchedule(): Promise<void> {
@@ -1197,6 +1283,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   wireImagePicker();
   wireScheduleButton();
   wireCreateScheduleForm();
+  wireNlpInput();
   wireReauth();
   wireSignOut();
   wireDeleteAccount();

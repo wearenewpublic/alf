@@ -814,6 +814,18 @@
 
           <!-- Recurring section (Recurring tab only) -->
           <div id="recurring-section" class="hidden">
+            <div id="sched-disabled-notice" class="banner banner-warn hidden">
+              Recurring schedules are disabled on this demo server to prevent abuse. The interface is shown for preview only.
+            </div>
+            <div style="margin-bottom:1rem;">
+              <label for="sched-nlp">Describe your schedule <span style="font-weight:400;color:var(--text-faint);">(optional)</span></label>
+              <div style="display:flex;gap:0.5rem;">
+                <input id="sched-nlp" type="text" placeholder="e.g. every Monday at 9am ET" style="flex:1;margin-bottom:0;" />
+                <button id="sched-nlp-btn" type="button" class="btn btn-secondary" style="flex-shrink:0;white-space:nowrap;">Parse</button>
+              </div>
+              <p id="sched-nlp-feedback" class="hidden" style="font-size:0.78rem;margin-top:0.4rem;"></p>
+            </div>
+
             <label for="sched-text">Post text</label>
             <textarea id="sched-text" placeholder="Text posted on each occurrence…" style="min-height:60px;"></textarea>
 

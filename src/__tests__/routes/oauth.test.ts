@@ -23,6 +23,7 @@ const makeConfig = (overrides: Partial<ServiceConfig> = {}): ServiceConfig => ({
   maxDraftsPerUser: null,
   allowedCollections: '*',
   oauthScope: 'atproto repo:*?action=create blob:*/*',
+  disableRecurring: false,
   ...overrides,
 });
 

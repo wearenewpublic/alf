@@ -1,6 +1,8 @@
 // ABOUTME: Public API for @newpublic/recurrence
 
 export { computeNextOccurrence, getOccurrenceRecord } from './engine.js';
+export { parseRecurrenceRule } from './parser.js';
+export { formatRecurrenceRule } from './formatter.js';
 export type {
   RecurrenceRule,
   RecurrenceRuleCore,

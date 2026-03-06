@@ -53,6 +53,7 @@ const createMockConfig = (): ServiceConfig => ({
   maxDraftsPerUser: null,
   allowedCollections: '*',
   oauthScope: 'atproto repo:*?action=create blob:*/*',
+  disableRecurring: false,
 });
 
 describe('storage', () => {

@@ -659,3 +659,36 @@ If `contentUrl` is provided instead of `record`, ALF fetches the URL at publish 
 | `scheduledAt` | ISO 8601 datetime of the scheduled occurrence |
 
 The response must be a JSON object that is the record to publish.
+
+---
+
+## Client utilities (`@newpublic/recurrence`)
+
+The recurrence package exported by the monorepo includes two utilities for working with `RecurrenceRule` objects on the client side.
+
+### `parseRecurrenceRule(input, defaultTimezone?)`
+
+Parses a plain-English string into a `RecurrenceRule`. Returns `null` if the input doesn't match any known pattern.
+
+```typescript
+import { parseRecurrenceRule } from '@newpublic/recurrence';
+
+parseRecurrenceRule('every Monday and Friday at 9am ET');
+parseRecurrenceRule('last business day of each month at 5pm UTC');
+parseRecurrenceRule('every year on January 1st at midnight', 'America/New_York');
+```
+
+`defaultTimezone` is an IANA timezone used when no timezone is detected in the input; defaults to `'UTC'`. See the [package README](../packages/recurrence/README.md) for the full list of supported phrasings.
+
+### `formatRecurrenceRule(rule)`
+
+Formats a `RecurrenceRule` as a human-readable English string. Useful for displaying schedule summaries in UI.
+
+```typescript
+import { formatRecurrenceRule } from '@newpublic/recurrence';
+
+formatRecurrenceRule(rule);
+// e.g. "every Monday and Friday at 9am (ET)"
+// e.g. "last business day of every month at 5pm (UTC)"
+// e.g. "every year on January 1st at midnight (UTC), starting 2026-01-01"
+```

@@ -9,6 +9,7 @@
     "start": "npm run build && ts-node server.ts"
   },
   "dependencies": {
+    "@newpublic/recurrence": "file:../packages/recurrence",
     "@atproto/oauth-client-browser": "^0.3.41",
     "dotenv": "^16.4.5",
     "esbuild": "^0.27.3",

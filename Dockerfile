@@ -25,6 +25,7 @@ ENV NODE_ENV=production
 RUN apk add --no-cache python3 make g++
 
 COPY package*.json ./
+COPY packages ./packages
 RUN npm ci --omit=dev
 
 COPY --from=builder /app/dist ./dist
